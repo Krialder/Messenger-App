@@ -1,96 +1,174 @@
+using AuthService.Data;
+using MessengerContracts.Interfaces;
+using Microsoft.EntityFrameworkCore;
+using OtpNet;
+using QRCoder;
+using System.Security.Cryptography;
+
 namespace AuthService.Services
 {
-    public interface IMFAService
+    public class MFAService : IMfaService
     {
-        Task<(string Secret, string QrCodeUri)> GenerateTOTPSecret(Guid userId, string username);
-        Task<bool> VerifyTOTPCode(Guid userId, string code);
-        Task<List<string>> GenerateRecoveryCodes(Guid userId);
-        Task<bool> VerifyRecoveryCode(Guid userId, string code);
-    }
+        private const int TotpWindow = 1; // Allow ±30 seconds clock drift
+        private const int RecoveryCodeCount = 10;
+        private const int RecoveryCodeLength = 16;
+        
+        private readonly AuthDbContext _context;
+        private readonly IPasswordHasher _passwordHasher;
 
-    public class MFAService : IMFAService
-    {
-        // PSEUDO CODE: Multi-Factor Authentication Business Logic
-
-        public async Task<(string Secret, string QrCodeUri)> GenerateTOTPSecret(Guid userId, string username)
+        public MFAService(AuthDbContext context, IPasswordHasher passwordHasher)
         {
-            // PSEUDO CODE:
-            // 1. Generate 160-bit random secret
-            // 2. Base32 encode the secret
-            // 3. Create provisioning URI:
-            //    otpauth://totp/SecureMessenger:{username}?secret={secret}&issuer=SecureMessenger&algorithm=SHA1&digits=6&period=30
-            // 4. Generate QR code from URI using QRCoder library
-            // 5. Store secret temporarily in mfa_methods (unverified)
-            // 6. Return secret + QR code data URL
-            
-            var secret = "BASE32ENCODEDSECRET";
-            var qrUri = $"otpauth://totp/SecureMessenger:{username}?secret={secret}&issuer=SecureMessenger";
-            
-            return (secret, qrUri);
+            _context = context;
+            _passwordHasher = passwordHasher;
         }
 
-        public async Task<bool> VerifyTOTPCode(Guid userId, string code)
+        /// <summary>
+        /// Generate TOTP secret and QR code
+        /// </summary>
+        public async Task<(string Secret, string QrCodeBase64)> GenerateTotpSecretAsync(
+            string username, 
+            string issuer = "SecureMessenger")
         {
-            // PSEUDO CODE:
-            // 1. Get user's TOTP secret from mfa_methods
-            // 2. Use OtpNet library to verify code
-            // 3. Check current time window ± 1 step (tolerance for clock skew)
-            // 4. If valid:
-            //    - Update last_used_at
-            //    - Return true
-            // 5. Log failed attempts (rate limiting)
-            
-            // Example using OtpNet:
-            // var totp = new Totp(Base32Encoding.ToBytes(secret));
-            // return totp.VerifyTotp(code, out long timeStepMatched, VerificationWindow.RfcSpecifiedNetworkDelay);
-            
-            return true;
+            // Generate random TOTP secret (Base32 encoded, 160 bits)
+            var secretBytes = RandomNumberGenerator.GetBytes(20);
+            var secret = Base32Encoding.ToString(secretBytes);
+
+            // Generate OTP auth URI for QR code
+            var otpUri = $"otpauth://totp/{issuer}:{username}?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30";
+
+            // Generate QR code
+            using var qrGenerator = new QRCodeGenerator();
+            var qrCodeData = qrGenerator.CreateQrCode(otpUri, QRCodeGenerator.ECCLevel.Q);
+            using var qrCode = new PngByteQRCode(qrCodeData);
+            var qrCodeBytes = qrCode.GetGraphic(20);
+            var qrCodeBase64 = Convert.ToBase64String(qrCodeBytes);
+
+            return (secret, qrCodeBase64);
         }
 
-        public async Task<List<string>> GenerateRecoveryCodes(Guid userId)
+        /// <summary>
+        /// Validate TOTP code (6 digits)
+        /// </summary>
+        public bool ValidateTotpCode(string secret, string code)
         {
-            // PSEUDO CODE:
-            // 1. Generate 10 random recovery codes (format: XXXX-XXXX-XXXX-XXXX)
-            // 2. Hash each code with Argon2id
-            // 3. Store hashes in recovery_codes table
-            // 4. Return plain text codes (only shown this once!)
-            
-            var codes = new List<string>();
-            for (int i = 0; i < 10; i++)
+            try
             {
-                // Generate: 16 alphanumeric chars, formatted with dashes
-                var code = $"{RandomString(4)}-{RandomString(4)}-{RandomString(4)}-{RandomString(4)}";
-                codes.Add(code);
-                
-                // Hash and store
-                // var hash = Argon2id.Hash(code);
-                // await _db.RecoveryCodes.AddAsync(new RecoveryCode { UserId = userId, CodeHash = hash });
+                if (string.IsNullOrWhiteSpace(code) || code.Length != 6)
+                    return false;
+
+                var secretBytes = Base32Encoding.ToBytes(secret);
+                var totp = new Totp(secretBytes, step: 30, mode: OtpHashMode.Sha1, totpSize: 6);
+
+                // Verify with time window (allows ±30 seconds clock drift)
+                var currentTime = DateTime.UtcNow;
+                for (int i = -TotpWindow; i <= TotpWindow; i++)
+                {
+                    var timeStep = currentTime.AddSeconds(i * 30);
+                    var expectedCode = totp.ComputeTotp(timeStep);
+                    
+                    if (ConstantTimeEquals(code, expectedCode))
+                        return true;
+                }
+
+                return false;
             }
-            
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Generate recovery codes for user
+        /// </summary>
+        public async Task<List<string>> GenerateRecoveryCodesAsync(Guid userId)
+        {
+            var codes = new List<string>();
+
+            // Delete existing unused recovery codes
+            var existingCodes = await _context.RecoveryCodes
+                .Where(r => r.UserId == userId && !r.Used)
+                .ToListAsync();
+            _context.RecoveryCodes.RemoveRange(existingCodes);
+
+            // Generate new recovery codes
+            for (int i = 0; i < RecoveryCodeCount; i++)
+            {
+                var code = GenerateRecoveryCode();
+                codes.Add(code);
+
+                // Hash and store
+                var recoveryCode = new RecoveryCode
+                {
+                    UserId = userId,
+                    CodeHash = _passwordHasher.HashPassword(code),
+                    Used = false,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _context.RecoveryCodes.Add(recoveryCode);
+            }
+
+            await _context.SaveChangesAsync();
             return codes;
         }
 
-        public async Task<bool> VerifyRecoveryCode(Guid userId, string code)
+        /// <summary>
+        /// Validate recovery code (one-time use)
+        /// </summary>
+        public async Task<bool> ValidateRecoveryCodeAsync(Guid userId, string code)
         {
-            // PSEUDO CODE:
-            // 1. Get all unused recovery codes for user
-            // 2. For each stored hash:
-            //    - Verify code against hash using Argon2id
-            // 3. If match found:
-            //    - Mark code as used (used = TRUE, used_at = NOW())
-            //    - Log usage in audit_log
-            //    - Return true
-            // 4. Rate limit failed attempts
-            
-            return true;
+            var storedCodes = await _context.RecoveryCodes
+                .Where(r => r.UserId == userId && !r.Used)
+                .ToListAsync();
+
+            foreach (var storedCode in storedCodes)
+            {
+                if (_passwordHasher.VerifyPassword(code, storedCode.CodeHash))
+                {
+                    // Mark as used
+                    storedCode.Used = true;
+                    storedCode.UsedAt = DateTime.UtcNow;
+                    await _context.SaveChangesAsync();
+                    return true;
+                }
+            }
+
+            return false;
         }
 
-        private string RandomString(int length)
+        /// <summary>
+        /// Generate a random recovery code (format: XXXX-XXXX-XXXX-XXXX)
+        /// </summary>
+        private string GenerateRecoveryCode()
         {
-            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            var random = new Random();
-            return new string(Enumerable.Repeat(chars, length)
-                .Select(s => s[random.Next(s.Length)]).ToArray());
+            const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // Exclude ambiguous chars
+            var random = RandomNumberGenerator.GetBytes(RecoveryCodeLength);
+            var code = new char[RecoveryCodeLength];
+
+            for (int i = 0; i < RecoveryCodeLength; i++)
+            {
+                code[i] = chars[random[i] % chars.Length];
+            }
+
+            // Format as XXXX-XXXX-XXXX-XXXX
+            return $"{new string(code, 0, 4)}-{new string(code, 4, 4)}-{new string(code, 8, 4)}-{new string(code, 12, 4)}";
+        }
+
+        /// <summary>
+        /// Constant-time string comparison to prevent timing attacks
+        /// </summary>
+        private bool ConstantTimeEquals(string a, string b)
+        {
+            if (a.Length != b.Length)
+                return false;
+
+            int result = 0;
+            for (int i = 0; i < a.Length; i++)
+            {
+                result |= a[i] ^ b[i];
+            }
+            return result == 0;
         }
     }
 }

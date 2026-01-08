@@ -24,7 +24,7 @@ namespace AuthService.Controllers
             return Ok(new { 
                 qr_code = "base64_qr_image", 
                 secret = "BASE32SECRET",
-                backup_codes = new[] { "XXXX-XXXX-XXXX-XXXX" }
+                backup_codes = new string[] { "XXXX-XXXX-XXXX-XXXX" }
             });
         }
 
@@ -41,7 +41,7 @@ namespace AuthService.Controllers
             //    - Log in audit_log
             // 4. Return recovery codes (show only once!)
             
-            return Ok(new { success = true, recovery_codes = new[] { /* ... */ } });
+            return Ok(new { success = true, recovery_codes = new string[] { "CODE1", "CODE2" } });
         }
 
         [HttpPost("enable-yubikey")]
@@ -65,7 +65,7 @@ namespace AuthService.Controllers
             // 2. Return list with metadata (type, friendly_name, is_primary)
             // 3. Hide sensitive data (secrets, keys)
             
-            return Ok(new[] { 
+            return Ok(new object[] { 
                 new { method_type = "totp", friendly_name = "Authenticator App", is_primary = true },
                 new { method_type = "yubikey", friendly_name = "YubiKey Office", is_primary = false }
             });
@@ -94,7 +94,7 @@ namespace AuthService.Controllers
             // 4. Store in recovery_codes table
             // 5. Return codes (show only once!)
             
-            return Ok(new { recovery_codes = new[] { /* ... */ } });
+            return Ok(new { recovery_codes = new string[] { "CODE1", "CODE2", "CODE3" } });
         }
     }
 

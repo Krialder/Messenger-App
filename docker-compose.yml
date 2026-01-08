@@ -14,6 +14,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U messenger_admin -d messenger_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
     networks:
       - messenger_network
 
@@ -25,6 +31,12 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
     networks:
       - messenger_network
 
@@ -36,10 +48,16 @@ services:
       RABBITMQ_DEFAULT_USER: messenger
       RABBITMQ_DEFAULT_PASS: rabbitmq_password
     ports:
-      - "5672:5672"    # AMQP
-      - "15672:15672"  # Management UI
+      - "5672:5672"
+      - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
     networks:
       - messenger_network
 
@@ -57,8 +75,17 @@ services:
     ports:
       - "5001:80"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
     networks:
       - messenger_network
 
@@ -77,9 +104,19 @@ services:
     ports:
       - "5002:80"
     depends_on:
-      - postgres
-      - rabbitmq
-      - redis
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
     networks:
       - messenger_network
 
@@ -94,7 +131,15 @@ services:
     ports:
       - "5003:80"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
     networks:
       - messenger_network
 
@@ -109,7 +154,15 @@ services:
     ports:
       - "5004:80"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
     networks:
       - messenger_network
 
@@ -120,11 +173,70 @@ services:
       dockerfile: Dockerfile
     container_name: messenger_audit_log_service
     environment:
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_audit_logs;Username=messenger_admin;Password=secure_password_123"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_audit;Username=messenger_admin;Password=secure_password_123"
     ports:
       - "5005:80"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - messenger_network
+
+  # Notification Service
+  notification_service:
+    build:
+      context: ./src/Backend/NotificationService
+      dockerfile: Dockerfile
+    container_name: messenger_notification_service
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_notifications;Username=messenger_admin;Password=secure_password_123"
+      RabbitMQ__Host: "rabbitmq"
+      RabbitMQ__Username: "messenger"
+      RabbitMQ__Password: "rabbitmq_password"
+    ports:
+      - "5006:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - messenger_network
+
+  # File Transfer Service
+  file_transfer_service:
+    build:
+      context: ./src/Backend/FileTransferService
+      dockerfile: Dockerfile
+    container_name: messenger_file_transfer_service
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_files;Username=messenger_admin;Password=secure_password_123"
+    ports:
+      - "5007:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
     networks:
       - messenger_network
 
@@ -137,38 +249,25 @@ services:
     ports:
       - "5000:80"
     depends_on:
-      - auth_service
-      - message_service
-      - user_service
-      - key_management_service
-      - notification_service
-      - file_transfer_service
-    networks:
-      - messenger_network
-
-  # Notification Service
-  notification_service:
-    build:
-      context: ./src/Backend/NotificationService
-      dockerfile: Dockerfile
-    container_name: messenger_notification_service
-    ports:
-      - "5006:80"
-    depends_on:
-      - redis
-    networks:
-      - messenger_network
-
-  # File Transfer Service
-  file_transfer_service:
-    build:
-      context: ./src/Backend/FileTransferService
-      dockerfile: Dockerfile
-    container_name: messenger_file_transfer_service
-    ports:
-      - "5007:80"
-    depends_on:
-      - postgres
+      auth_service:
+        condition: service_healthy
+      message_service:
+        condition: service_healthy
+      user_service:
+        condition: service_healthy
+      key_management_service:
+        condition: service_healthy
+      notification_service:
+        condition: service_healthy
+      file_transfer_service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
     networks:
       - messenger_network
 
