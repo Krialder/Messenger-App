@@ -38,8 +38,6 @@
   - Links zu 10_DEPLOYMENT.md
   - Version 3.4 erwähnt
 
-### Entfernte unnötige Aspekte
-
 ### Neue Dokumentation
 - 📄 **09_API_REFERENCE.md** (komplett neu)
 - 📄 **10_DEPLOYMENT.md** (komplett neu)
