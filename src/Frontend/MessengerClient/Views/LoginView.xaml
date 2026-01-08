@@ -1,0 +1,129 @@
+<!-- ========================================
+     PSEUDO-CODE - Sprint 7: Login View
+     Status: 🔶 XAML-Struktur definiert
+     ======================================== -->
+<UserControl x:Class="SecureMessenger.Client.Views.LoginView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignHeight="600" d:DesignWidth="400">
+    
+    <!-- PSEUDO: DataContext = LoginViewModel -->
+    
+    <Grid Background="{DynamicResource BackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="40,60,40,40">
+            <TextBlock Text="🔒 Secure Messenger" 
+                       Style="{StaticResource TitleTextStyle}"
+                       FontSize="32"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="End-to-End verschlüsselte Kommunikation" 
+                       Style="{StaticResource SubtitleTextStyle}"
+                       HorizontalAlignment="Center"
+                       Margin="0,10,0,0"/>
+        </StackPanel>
+        
+        <!-- Login Form -->
+        <StackPanel Grid.Row="1" Margin="40,0">
+            <!-- Username/Email -->
+            <TextBlock Text="Benutzername oder E-Mail" 
+                       Style="{StaticResource LabelTextStyle}"/>
+            <TextBox Style="{StaticResource InputTextBoxStyle}"
+                     Margin="0,5,0,20">
+                <!-- PSEUDO: Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" -->
+            </TextBox>
+            
+            <!-- Password -->
+            <TextBlock Text="Passwort" 
+                       Style="{StaticResource LabelTextStyle}"/>
+            <PasswordBox Style="{StaticResource InputPasswordBoxStyle}"
+                         Margin="0,5,0,10">
+                <!-- PSEUDO: Attach Behavior for Password Binding -->
+            </PasswordBox>
+            
+            <!-- Remember Me -->
+            <CheckBox Content="Angemeldet bleiben" 
+                      Margin="0,10,0,20">
+                <!-- PSEUDO: IsChecked="{Binding RememberMe}" -->
+            </CheckBox>
+            
+            <!-- Login Button -->
+            <Button Content="Anmelden" 
+                    Style="{StaticResource PrimaryButtonStyle}"
+                    Height="45"
+                    Margin="0,10,0,15">
+                <!-- PSEUDO: Command="{Binding LoginCommand}" -->
+                <!-- PSEUDO: IsEnabled="{Binding CanLogin}" -->
+            </Button>
+            
+            <!-- MFA Code Input (Visible when MFA required) -->
+            <!-- PSEUDO: Visibility="{Binding MfaRequired, Converter={StaticResource BoolToVisibilityConverter}}" -->
+            <Border BorderBrush="{DynamicResource AccentBrush}" 
+                    BorderThickness="1"
+                    CornerRadius="5"
+                    Padding="15"
+                    Margin="0,15,0,0">
+                <!-- PSEUDO: Visibility collapsed initially -->
+                
+                <StackPanel>
+                    <TextBlock Text="Zwei-Faktor-Authentifizierung" 
+                               Style="{StaticResource LabelTextStyle}"
+                               FontWeight="Bold"/>
+                    
+                    <!-- MFA Method Selection -->
+                    <ComboBox Margin="0,10,0,15">
+                        <!-- PSEUDO: ItemsSource="{Binding AvailableMfaMethods}" -->
+                        <!-- PSEUDO: DisplayMemberPath="FriendlyName" -->
+                    </ComboBox>
+                    
+                    <!-- MFA Code Input -->
+                    <TextBox Style="{StaticResource InputTextBoxStyle}"
+                             MaxLength="6"
+                             Margin="0,0,0,10">
+                        <!-- PSEUDO: Text="{Binding MfaCode, UpdateSourceTrigger=PropertyChanged}" -->
+                    </TextBox>
+                    
+                    <Button Content="Bestätigen" 
+                            Style="{StaticResource PrimaryButtonStyle}">
+                        <!-- PSEUDO: Command="{Binding VerifyMfaCommand}" -->
+                    </Button>
+                </StackPanel>
+            </Border>
+            
+            <!-- Error Message -->
+            <TextBlock Style="{StaticResource ErrorTextStyle}"
+                       TextWrapping="Wrap"
+                       Margin="0,15,0,0">
+                <!-- PSEUDO: Text="{Binding ErrorMessage}" -->
+                <!-- PSEUDO: Visibility collapsed when no error -->
+            </TextBlock>
+        </StackPanel>
+        
+        <!-- Footer Links -->
+        <StackPanel Grid.Row="2" Margin="40,20,40,40" HorizontalAlignment="Center">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="Noch kein Konto? " 
+                           Style="{StaticResource BodyTextStyle}"/>
+                <TextBlock Text="Registrieren" 
+                           Style="{StaticResource LinkTextStyle}">
+                    <!-- PSEUDO: Command="{Binding NavigateToRegisterCommand}" -->
+                </TextBlock>
+            </StackPanel>
+            
+            <TextBlock Text="Passwort vergessen?" 
+                       Style="{StaticResource LinkTextStyle}"
+                       HorizontalAlignment="Center"
+                       Margin="0,10,0,0">
+                <!-- PSEUDO: Command="{Binding NavigateToPasswordResetCommand}" -->
+            </TextBlock>
+        </StackPanel>
+    </Grid>
+</UserControl>

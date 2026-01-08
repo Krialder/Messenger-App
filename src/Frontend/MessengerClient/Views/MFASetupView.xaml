@@ -1,0 +1,81 @@
+<!-- PSEUDO-CODE - Sprint 9: MFA Setup View -->
+<UserControl x:Class="SecureMessenger.Client.Views.MFASetupView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <Grid Background="{DynamicResource BackgroundBrush}">
+        <ScrollViewer>
+            <StackPanel Margin="40">
+                <TextBlock Text="Multi-Factor Authentication einrichten" 
+                           Style="{StaticResource TitleTextStyle}"/>
+                
+                <!-- Step 1: Choose Method -->
+                <TextBlock Text="Schritt 1: Methode wählen" 
+                           Style="{StaticResource SectionHeaderStyle}"
+                           Margin="0,30,0,10"/>
+                
+                <RadioButton Content="📱 Authenticator App (TOTP)" 
+                             GroupName="MfaMethod"
+                             Margin="0,10,0,10">
+                    <!-- PSEUDO: IsChecked="{Binding IsTotpSelected}" -->
+                </RadioButton>
+                
+                <RadioButton Content="🔑 YubiKey" 
+                             GroupName="MfaMethod"
+                             Margin="0,0,0,10">
+                    <!-- PSEUDO: IsChecked="{Binding IsYubiKeySelected}" -->
+                </RadioButton>
+                
+                <!-- TOTP Setup (Visible when TOTP selected) -->
+                <Border BorderBrush="{DynamicResource AccentBrush}"
+                        BorderThickness="1"
+                        CornerRadius="5"
+                        Padding="20"
+                        Margin="0,20,0,0">
+                    <!-- PSEUDO: Visibility based on IsTotpSelected -->
+                    
+                    <StackPanel>
+                        <TextBlock Text="Schritt 2: QR-Code scannen"/>
+                        
+                        <!-- QR Code Image -->
+                        <Image Width="200" Height="200" Margin="0,15,0,15">
+                            <!-- PSEUDO: Source="{Binding QrCodeImage}" -->
+                        </Image>
+                        
+                        <TextBlock Text="Manueller Schlüssel:" FontWeight="Bold"/>
+                        <TextBox IsReadOnly="True" Margin="0,5,0,15">
+                            <!-- PSEUDO: Text="{Binding TotpSecret}" -->
+                        </TextBox>
+                        
+                        <TextBlock Text="Schritt 3: Code eingeben"/>
+                        <TextBox MaxLength="6" Margin="0,5,0,15">
+                            <!-- PSEUDO: Text="{Binding VerificationCode}" -->
+                        </TextBox>
+                        
+                        <Button Content="MFA aktivieren"
+                                Style="{StaticResource PrimaryButtonStyle}">
+                            <!-- PSEUDO: Command="{Binding EnableMfaCommand}" -->
+                        </Button>
+                    </StackPanel>
+                </Border>
+                
+                <!-- Recovery Codes -->
+                <Border Background="{DynamicResource WarningBackgroundBrush}"
+                        Padding="20"
+                        Margin="0,20,0,0">
+                    <!-- PSEUDO: Visible after MFA activation -->
+                    
+                    <StackPanel>
+                        <TextBlock Text="⚠️ Recovery Codes" FontWeight="Bold"/>
+                        <TextBlock Text="Bewahren Sie diese Codes sicher auf!"
+                                   Margin="0,5,0,15"/>
+                        
+                        <ItemsControl>
+                            <!-- PSEUDO: ItemsSource="{Binding RecoveryCodes}" -->
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

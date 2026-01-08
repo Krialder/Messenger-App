@@ -1,0 +1,182 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: messenger_postgres
+    environment:
+      POSTGRES_USER: messenger_admin
+      POSTGRES_PASSWORD: secure_password_123
+      POSTGRES_DB: messenger_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - messenger_network
+
+  # Redis (Session Storage, Presence Management)
+  redis:
+    image: redis:7-alpine
+    container_name: messenger_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - messenger_network
+
+  # RabbitMQ (Message Queue)
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: messenger_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: messenger
+      RABBITMQ_DEFAULT_PASS: rabbitmq_password
+    ports:
+      - "5672:5672"    # AMQP
+      - "15672:15672"  # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - messenger_network
+
+  # Auth Service
+  auth_service:
+    build:
+      context: ./src/Backend/AuthService
+      dockerfile: Dockerfile
+    container_name: messenger_auth_service
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_auth;Username=messenger_admin;Password=secure_password_123"
+      JWT__Secret: "YourSuperSecretJWTKeyHere_MinLength32Characters"
+      JWT__Issuer: "MessengerAuthService"
+      JWT__Audience: "MessengerClient"
+    ports:
+      - "5001:80"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - messenger_network
+
+  # Message Service
+  message_service:
+    build:
+      context: ./src/Backend/MessageService
+      dockerfile: Dockerfile
+    container_name: messenger_message_service
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_messages;Username=messenger_admin;Password=secure_password_123"
+      RabbitMQ__Host: "rabbitmq"
+      RabbitMQ__Username: "messenger"
+      RabbitMQ__Password: "rabbitmq_password"
+      Redis__ConnectionString: "redis:6379"
+    ports:
+      - "5002:80"
+    depends_on:
+      - postgres
+      - rabbitmq
+      - redis
+    networks:
+      - messenger_network
+
+  # Key Management Service
+  key_management_service:
+    build:
+      context: ./src/Backend/KeyManagementService
+      dockerfile: Dockerfile
+    container_name: messenger_key_management_service
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_keys;Username=messenger_admin;Password=secure_password_123"
+    ports:
+      - "5003:80"
+    depends_on:
+      - postgres
+    networks:
+      - messenger_network
+
+  # User Service
+  user_service:
+    build:
+      context: ./src/Backend/UserService
+      dockerfile: Dockerfile
+    container_name: messenger_user_service
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_users;Username=messenger_admin;Password=secure_password_123"
+    ports:
+      - "5004:80"
+    depends_on:
+      - postgres
+    networks:
+      - messenger_network
+
+  # Audit Log Service
+  audit_log_service:
+    build:
+      context: ./src/Backend/AuditLogService
+      dockerfile: Dockerfile
+    container_name: messenger_audit_log_service
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_audit_logs;Username=messenger_admin;Password=secure_password_123"
+    ports:
+      - "5005:80"
+    depends_on:
+      - postgres
+    networks:
+      - messenger_network
+
+  # API Gateway
+  gateway_service:
+    build:
+      context: ./src/Backend/GatewayService
+      dockerfile: Dockerfile
+    container_name: messenger_gateway_service
+    ports:
+      - "5000:80"
+    depends_on:
+      - auth_service
+      - message_service
+      - user_service
+      - key_management_service
+      - notification_service
+      - file_transfer_service
+    networks:
+      - messenger_network
+
+  # Notification Service
+  notification_service:
+    build:
+      context: ./src/Backend/NotificationService
+      dockerfile: Dockerfile
+    container_name: messenger_notification_service
+    ports:
+      - "5006:80"
+    depends_on:
+      - redis
+    networks:
+      - messenger_network
+
+  # File Transfer Service
+  file_transfer_service:
+    build:
+      context: ./src/Backend/FileTransferService
+      dockerfile: Dockerfile
+    container_name: messenger_file_transfer_service
+    ports:
+      - "5007:80"
+    depends_on:
+      - postgres
+    networks:
+      - messenger_network
+
+networks:
+  messenger_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:

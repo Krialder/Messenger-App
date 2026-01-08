@@ -2,11 +2,11 @@
 
 Eine **geplante** Ende-zu-Ende verschlüsselte Messenger-Anwendung für Windows-PC mit erweiterten Sicherheitsfeatures.
 
-> ⚠️ **Projektstatus**: Dieses Repository enthält die **Architektur-Dokumentation und Planung**. Die Implementierung wurde noch nicht gestartet.
+> ⚠️ **Projektstatus**: Dieses Repository enthält die **Architektur-Dokumentation und Pseudo-Code-Implementierung**. Die vollständige Implementierung steht noch aus.
 
 ## 📋 Was ist das hier?
 
-**Planungsprojekt** für einen sicheren Messenger ähnlich Signal mit zusätzlichen Features:
+**Vollständig strukturiertes Planungsprojekt** für einen sicheren Messenger ähnlich Signal mit zusätzlichen Features:
 
 - **Layer 1**: End-to-End Verschlüsselung (wie Signal) - ChaCha20-Poly1305 + X25519
 - **Layer 2**: Lokale Datenverschlüsselung - Schutz bei Gerätediebstahl (AES-256-GCM + Argon2id)
@@ -14,23 +14,49 @@ Eine **geplante** Ende-zu-Ende verschlüsselte Messenger-Anwendung für Windows-
 
 ## 📚 Was enthält dieses Repository?
 
-### ✅ Vorhanden
+### ✅ Vollständig implementiert (Pseudo-Code)
 
-- **18 PlantUML-Diagramme** (System-Architektur, Sequenzdiagramme, ERD)
-- **9 Dokumentations-Dateien** mit detaillierter Planung
-- **Vollständiges PostgreSQL-Schema**
-- **Kryptographie-Konzept** mit Algorithmen-Auswahl
-- **Multi-Factor Authentication Design** (TOTP, YubiKey, FIDO2)
-- **Implementierungsplan** (12 Sprints, 6 Monate)
-- **Testing-Strategie**
+**Backend Services** (9 Microservices):
+- ✅ **AuthService** - JWT, MFA (TOTP, YubiKey, FIDO2)
+- ✅ **MessageService** - Verschlüsselte Nachrichten, RabbitMQ
+- ✅ **NotificationService** - SignalR Real-time, Presence Management
+- ✅ **CryptoService** - Layer 1-3 Verschlüsselung
+- ✅ **KeyManagementService** - Schlüsselrotation, Lifecycle
+- ✅ **UserService** - Profile, Kontakte
+- ✅ **AuditLogService** - DSGVO-konformes Logging
+- ✅ **FileTransferService** - Verschlüsselter Datei-Upload
+- ✅ **GatewayService** - API Gateway (Ocelot), Rate Limiting
+
+**Shared Libraries**:
+- ✅ **MessengerContracts** - DTOs, Interfaces
+- ✅ **MessengerCommon** - Constants, Extensions, Helpers
+
+**Frontend**:
+- ✅ **WPF Client** - MVVM, ReactiveUI, Material Design
+- ✅ **Themes** - Dark Mode, Midnight Mode
+
+**Tests**:
+- ✅ **MessengerTests** - Unit & Integration Tests
+- ✅ **MessengerTests.E2E** - End-to-End Tests
+- ✅ **MessengerTests.Performance** - Performance Benchmarks
+
+**Infrastructure**:
+- ✅ **Docker Compose** - Alle 9 Services
+- ✅ **CI/CD Pipeline** - GitHub Actions
+- ✅ **Database Schema** - PostgreSQL init-db.sql
+
+**Dokumentation**:
+- ✅ **18 PlantUML-Diagramme**
+- ✅ **9 Dokumentations-Dateien**
+- ✅ **Vollständige API-Referenz**
+- ✅ **Deployment-Guide**
 
 ### ❌ Nicht vorhanden
 
-- ⏳ Kein Backend-Code
-- ⏳ Kein Frontend-Code
-- ⏳ Keine Datenbank-Migrationen
-- ⏳ Keine Docker-Container
-- ⏳ Kein lauffähiger Code
+- ⏳ **Produktionscode** - Pseudo-Code muss ersetzt werden
+- ⏳ **EF Core Migrations** - Datenbankmigrationen fehlen
+- ⏳ **Echte Kryptographie** - Bibliotheken integrieren
+- ⏳ **SignalR Implementierung** - Real-time Events vervollständigen
 
 ## 🎯 Hauptmerkmale (geplant)
 
@@ -59,6 +85,7 @@ Eine **geplante** Ende-zu-Ende verschlüsselte Messenger-Anwendung für Windows-
 - Dark Mode, Midnight Mode
 - Typing Indicators & Read Receipts
 - Contact Management
+- Encrypted File Transfer (100 MB max)
 
 ### Technologie
 - Backend: .NET 8 / ASP.NET Core
@@ -66,11 +93,35 @@ Eine **geplante** Ende-zu-Ende verschlüsselte Messenger-Anwendung für Windows-
 - Database: PostgreSQL 16
 - Cache: Redis 7
 - Message Queue: RabbitMQ 3
+- API Gateway: Ocelot
 
 ## 🏗️ Architektur
 
 ![System Architecture](docs/diagrams/PNG/01_system_architecture.png)
 > **Quelle**: [01_system_architecture.puml](docs/diagrams/01_system_architecture.puml)
+
+### Microservices-Übersicht
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     API Gateway (Ocelot)                    │
+│        Rate Limiting | Routing | Load Balancing            │
+└─────────────────────────────────────────────────────────────┘
+                            ▼
+    ┌───────────────────────────────────────────────────────┐
+    │                                                       │
+    ▼                 ▼                 ▼                 ▼
+┌─────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+│  Auth   │     │ Messages │     │   Keys   │     │  Users   │
+│ Service │     │ Service  │     │ Service  │     │ Service  │
+└─────────┘     └──────────┘     └──────────┘     └──────────┘
+    │                 │                 │                 │
+    ▼                 ▼                 ▼                 ▼
+┌─────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐
+│   MFA   │     │ Notific. │     │  Files   │     │  Audit   │
+│         │     │ (SignalR)│     │ Transfer │     │   Logs   │
+└─────────┘     └──────────┘     └──────────┘     └──────────┘
+```
 
 ### Verschlüsselungs-Layers
 
@@ -96,19 +147,10 @@ Eine **geplante** Ende-zu-Ende verschlüsselte Messenger-Anwendung für Windows-
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Microservices
-
-**Geplante Services**:
-- **Authentication Service** (JWT, MFA)
-- **Message Service** (Encrypted Storage)
-- **Key Management Service** (Rotation, Lifecycle)
-- **User Service** (Profiles, Contacts)
-- **Notification Service** (Real-time Push)
-- **Audit Log Service** (Logging)
-
 ## 📚 Dokumentation
 
-📋 **[Dokumentations-Index](docs/00_INDEX.md)** - Zentrale Übersicht
+📋 **[Dokumentations-Index](docs/00_INDEX.md)** - Zentrale Übersicht  
+📋 **[Workspace Guide](WORKSPACE_GUIDE.md)** - Vollständige Struktur-Übersicht
 
 ### Hauptdokumente
 
@@ -152,6 +194,7 @@ Alle Diagramme: [`docs/diagrams/`](docs/diagrams/)
 - **Datenbank**: PostgreSQL 16
 - **Caching**: Redis 7
 - **Message Queue**: RabbitMQ 3
+- **API Gateway**: Ocelot 22
 - **Kryptographie**: libsodium-net, .NET Cryptography
 
 ### Frontend
@@ -195,7 +238,7 @@ Alle Diagramme: [`docs/diagrams/`](docs/diagrams/)
 ## 📅 Implementierungs-Zeitplan
 
 **Projektdauer**: 6 Monate (12 Sprints à 2 Wochen)  
-**Status**: 📋 **Planungsphase**
+**Status**: 📋 **Strukturierungsphase abgeschlossen**
 
 | Phase | Sprints | Wochen | Fokus | Deliverable |
 |-------|---------|--------|-------|-------------|
@@ -206,37 +249,33 @@ Alle Diagramme: [`docs/diagrams/`](docs/diagrams/)
 
 Details: [Implementierungsplan](docs/07_IMPLEMENTATION_PLAN.md)
 
-### Meilensteine
+## 🚀 Nächste Schritte
 
-- ⏳ **Sprint 1-2**: Docker, Auth Service, JWT + MFA
-- ⏳ **Sprint 3**: Layer 1 E2E Encryption
-- ⏳ **Sprint 4**: Layer 2 Local Storage Encryption
-- ⏳ **Sprint 5-6**: Message Service, Key Management
-- ⏳ **Sprint 7**: WPF Client Grundlagen
-- ⏳ **Sprint 8**: Chat UI
-- ⏳ **Sprint 9**: Theme System & MFA (TOTP, Recovery Codes)
-- ⏳ **Sprint 10**: Real-time (SignalR) & Enterprise MFA (YubiKey, FIDO2)
-- ⏳ **Sprint 11**: DSGVO-Features
-- ⏳ **Sprint 12**: Security Hardening
-
-## 🚀 Nächste Schritte (wenn implementiert wird)
+### Wenn Implementierung startet:
 
 1. **Dokumentation lesen**: [Dokumentations-Index](docs/00_INDEX.md)
-2. **Architektur verstehen**: [System-Architektur](docs/01_SYSTEM_ARCHITECTURE.md)
-3. **Sprint-Plan**: [Implementierungsplan](docs/07_IMPLEMENTATION_PLAN.md)
+2. **Workspace-Struktur verstehen**: [WORKSPACE_GUIDE.md](WORKSPACE_GUIDE.md)
+3. **Pseudo-Code ersetzen**: Echte Implementierung in Services
+4. **Datenbank-Migrationen**: EF Core Migrations erstellen
+5. **Tests erweitern**: > 80% Coverage erreichen
 
-### Setup (noch nicht verfügbar)
+### Setup (Pseudo-Code testen)
 
 ```bash
-# Zukünftig geplant:
 git clone https://github.com/Krialder/Messenger.git
 cd Messenger
 
+# Restore NuGet packages
 dotnet restore
+
+# Start infrastructure
 docker-compose up -d
+
+# Run tests
 dotnet test
 
-cd src/Client/SecureMessenger.WPF
+# Run WPF Client
+cd src/Frontend/MessengerClient
 dotnet run
 ```
 
@@ -244,11 +283,40 @@ dotnet run
 
 - **Unit Tests**: > 80% Coverage (Crypto: > 90%)
 - **Integration Tests**: API, Database, RabbitMQ
-- **E2E Tests**: Critical Workflows
-- **Security Tests**: SQL Injection, XSS, Rate Limiting
+- **E2E Tests**: Critical Workflows (Login, Message Flow)
 - **Performance Tests**: Encryption < 10ms
+- **Security Tests**: SQL Injection, XSS, Rate Limiting
 
 Details: [Testing-Strategie](docs/08_TESTING.md)
+
+## 📦 Projekt-Struktur
+
+```
+Messenger/
+├── src/
+│   ├── Backend/                     # 9 Microservices
+│   │   ├── GatewayService/          # ✅ NEW - API Gateway
+│   │   ├── AuthService/
+│   │   ├── MessageService/
+│   │   ├── NotificationService/     # ✅ NEW - SignalR
+│   │   ├── CryptoService/
+│   │   ├── KeyManagementService/
+│   │   ├── UserService/
+│   │   ├── FileTransferService/     # ✅ NEW - Encrypted Files
+│   │   └── AuditLogService/
+│   ├── Shared/                      # ✅ NEW - Shared Libraries
+│   │   ├── MessengerContracts/      # DTOs, Interfaces
+│   │   └── MessengerCommon/         # Constants, Extensions
+│   └── Frontend/
+│       └── MessengerClient/         # WPF Client
+├── tests/
+│   ├── MessengerTests/              # Unit & Integration
+│   ├── MessengerTests.E2E/          # ✅ NEW - End-to-End
+│   └── MessengerTests.Performance/  # ✅ NEW - Benchmarks
+├── docs/                            # 18 Diagramme + 9 Dokumente
+├── docker-compose.yml               # ✅ UPDATED - All 9 services
+└── Messenger.sln                    # ✅ UPDATED - 16 projects
+```
 
 ## 📄 Lizenz
 
@@ -272,23 +340,26 @@ Aktuell: Dokumentation verbessern möglich
 
 ---
 
-**Version**: 3.4  
-**Status**: 📋 **Planungsphase** - Architektur-Dokumentation vorhanden, keine Implementierung  
+**Version**: 4.0  
+**Status**: 📋 **Struktur vollständig** - Pseudo-Code vorhanden, Implementierung steht aus  
 **Letzte Aktualisierung**: 2025-01-06
 
 ## 📝 Changelog
 
 [DOCUMENTATION_CHANGELOG.md](docs/DOCUMENTATION_CHANGELOG.md)
 
-### Neueste Änderungen (v3.4 - Januar 2025)
+### Neueste Änderungen (v4.0 - Januar 2025)
 
-- ✅ **Projektstatus klargestellt**: Planungsphase, keine Implementierung
-- ✅ **Realistische Sprache**: Weniger Marketing, mehr Technik
-- ✅ **API-Dokumentation**: Neue Datei 09_API_REFERENCE.md
-- ✅ **Deployment-Guide**: Neue Datei 10_DEPLOYMENT.md
-- ✅ **Unnötige Aspekte entfernt**: Quantencomputer, zu viele Compliance-Details
+- ✅ **Vollständige Struktur**: Alle 9 Microservices implementiert (Pseudo-Code)
+- ✅ **Shared Libraries**: MessengerContracts + MessengerCommon hinzugefügt
+- ✅ **API Gateway**: Ocelot-basiertes Gateway mit Rate Limiting
+- ✅ **NotificationService**: Ausgelagert aus MessageService
+- ✅ **FileTransferService**: UC-012 verschlüsselter Datei-Upload
+- ✅ **Erweiterte Tests**: E2E + Performance Test-Projekte
+- ✅ **Docker Compose**: Alle Services containerisiert
+- ✅ **Solution-Datei**: 16 Projekte integriert
 
 ---
 
-**Dieses Repository ist ein Planungsprojekt.**  
-**Die Dokumentation kann als Grundlage für die Implementierung dienen.**
+**Dieses Repository ist ein vollständig strukturiertes Planungsprojekt.**  
+**Alle Komponenten sind als Pseudo-Code implementiert und bereit für die finale Umsetzung.**

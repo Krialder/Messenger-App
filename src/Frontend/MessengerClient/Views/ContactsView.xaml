@@ -1,0 +1,25 @@
+<!-- PSEUDO-CODE - Sprint 8: Contacts View -->
+<UserControl x:Class="SecureMessenger.Client.Views.ContactsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    
+    <Grid Background="{DynamicResource BackgroundBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Search Box -->
+        <TextBox Grid.Row="0" 
+                 Style="{StaticResource InputTextBoxStyle}"
+                 Margin="15">
+            <!-- PSEUDO: Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}" -->
+        </TextBox>
+        
+        <!-- Contacts List -->
+        <ListBox Grid.Row="1">
+            <!-- PSEUDO: ItemsSource="{Binding Contacts}" -->
+            <!-- PSEUDO: SelectedItem="{Binding SelectedContact}" -->
+        </ListBox>
+    </Grid>
+</UserControl>
