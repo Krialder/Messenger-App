@@ -1,0 +1,142 @@
+@startuml Docker Deployment Architecture
+!theme plain
+
+title Docker Compose Deployment Architecture
+
+node "Docker Host" {
+    
+    package "Frontend Network" {
+        component [API Gateway\n(Ocelot)] as Gateway #LightBlue
+    }
+    
+    package "Backend Network (Internal)" {
+        
+        component [Auth Service\n:5001] as Auth #LightGreen
+        component [Message Service\n:5002] as Msg #LightGreen
+        component [Key Service\n:5003] as Key #LightGreen
+        component [User Service\n:5004] as User #LightGreen
+        component [Notification Service\n:5005] as Notif #LightGreen
+        component [Audit Service\n:5006] as Audit #LightGreen
+        
+        database "PostgreSQL\n:5432" as PG #Pink {
+            [messenger_auth]
+            [messenger_messages]
+            [messenger_keys]
+            [messenger_users]
+            [messenger_audit]
+        }
+        
+        database "Redis\n:6379" as Redis #Orange {
+            [Cache]
+            [Sessions]
+            [Presence]
+        }
+        
+        queue "RabbitMQ\n:5672, :15672" as MQ #Yellow {
+            [Message Queue]
+            [Pub/Sub]
+        }
+    }
+    
+    package "Monitoring Stack" {
+        component [Seq\n:5341] as Seq #Purple
+        component [Prometheus\n:9090] as Prom #Purple
+        component [Grafana\n:3000] as Graf #Purple
+    }
+}
+
+actor "WPF Client" as Client
+
+Client -down-> Gateway : HTTPS/WSS\n:443
+
+Gateway -down-> Auth : HTTP
+Gateway -down-> Msg : HTTP
+Gateway -down-> Key : HTTP
+Gateway -down-> User : HTTP
+Gateway -down-> Notif : HTTP/WS
+
+Auth -down-> PG
+Auth -down-> Redis
+
+Msg -down-> PG
+Msg -down-> MQ
+
+Key -down-> PG
+
+User -down-> PG
+User -down-> Redis
+
+Notif -down-> MQ
+Notif -down-> Redis
+
+Audit -down-> PG
+
+Auth -right-> Seq : Logs
+Msg -right-> Seq : Logs
+Key -right-> Seq : Logs
+User -right-> Seq : Logs
+Notif -right-> Seq : Logs
+Audit -right-> Seq : Logs
+
+Auth -down-> Prom : Metrics
+Msg -down-> Prom : Metrics
+Key -down-> Prom : Metrics
+User -down-> Prom : Metrics
+Notif -down-> Prom : Metrics
+Audit -down-> Prom : Metrics
+
+Prom -right-> Graf : Data Source
+
+note right of Gateway
+    **docker-compose.yml**
+    
+    services:
+      gateway:
+        image: messenger/gateway
+        ports:
+          - "443:443"
+        networks:
+          - frontend
+          - backend
+        depends_on:
+          - auth-service
+          - message-service
+end note
+
+note bottom of PG
+    **Persistent Volumes:**
+    - postgres-data:/var/lib/postgresql/data
+    - Encrypted at rest
+    - Daily backups
+end note
+
+note bottom of Redis
+    **Configuration:**
+    - Persistence: AOF + RDB
+    - Max memory: 2GB
+    - Eviction: allkeys-lru
+end note
+
+note bottom of MQ
+    **High Availability:**
+    - Durable queues
+    - Message persistence
+    - Auto-reconnect
+    - Dead letter exchange
+end note
+
+note right of Seq
+    **Structured Logging:**
+    - Centralized log aggregation
+    - Query and filter logs
+    - Retention: 30 days
+end note
+
+note right of Prom
+    **Metrics:**
+    - Scrape interval: 15s
+    - Retention: 15 days
+    - Custom metrics
+end note
+
+@enduml

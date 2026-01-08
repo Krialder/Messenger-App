@@ -1,0 +1,79 @@
+﻿@startuml Forward Secrecy Flow
+!theme plain
+
+title Forward Secrecy - Per-Message Key Rotation
+
+participant Alice
+participant "Ephemeral\nKey Store" as KeyStore
+
+== Message 1 ==
+Alice -> KeyStore : Generate ephemeral_key_A
+activate KeyStore
+KeyStore --> Alice : ephemeral_key_A
+deactivate KeyStore
+
+Alice -> Alice : Encrypt Message 1\nwith ephemeral_key_A
+
+Alice -> Alice : Send Message 1
+
+Alice -> KeyStore : Delete ephemeral_key_A ✓
+activate KeyStore
+note right of KeyStore
+    **Secure Deletion:**
+    - Overwrite with zeros
+    - Overwrite with random
+    - Overwrite with zeros
+    Key is irrecoverable
+end note
+KeyStore --> Alice : Key deleted
+deactivate KeyStore
+
+== Message 2 ==
+Alice -> KeyStore : Generate ephemeral_key_B (NEW!)
+activate KeyStore
+KeyStore --> Alice : ephemeral_key_B
+deactivate KeyStore
+
+Alice -> Alice : Encrypt Message 2\nwith ephemeral_key_B
+
+Alice -> Alice : Send Message 2
+
+Alice -> KeyStore : Delete ephemeral_key_B ✓
+activate KeyStore
+KeyStore --> Alice : Key deleted
+deactivate KeyStore
+
+== Message 3 ==
+Alice -> KeyStore : Generate ephemeral_key_C (NEW!)
+activate KeyStore
+KeyStore --> Alice : ephemeral_key_C
+deactivate KeyStore
+
+Alice -> Alice : Encrypt Message 3\nwith ephemeral_key_C
+
+Alice -> Alice : Send Message 3
+
+Alice -> KeyStore : Delete ephemeral_key_C ✓
+activate KeyStore
+KeyStore --> Alice : Key deleted
+deactivate KeyStore
+
+== Result: Forward Secrecy ==
+
+note over Alice, KeyStore
+    **Key Compromise Scenario:**
+    
+    IF attacker compromises ephemeral_key_C:
+    ✅ Can decrypt: Message 3 ONLY
+    ❌ Cannot decrypt: Message 1, Message 2
+    
+    **Why?**
+    - Each message uses unique key
+    - Keys are deleted after use
+    - No key reuse
+    - Past messages remain secure
+    
+    **Forward Secrecy = Achieved ✓**
+end note
+
+@enduml

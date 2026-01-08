@@ -1,0 +1,102 @@
+@startuml Account Status State Diagram
+!theme plain
+
+title User Account Status Lifecycle
+
+[*] --> Unverified : Registration
+
+state Unverified {
+    Unverified : Account created
+    Unverified : Email not confirmed
+    Unverified : Cannot login
+}
+
+Unverified --> Active : Email confirmed
+Unverified --> [*] : 24h timeout\n(auto-delete)
+
+state Active {
+    Active : Normal account status
+    Active : Can use all features
+    Active : MFA optional
+}
+
+Active --> Suspended : Admin action or\nsecurity incident
+Active --> Locked : Multiple failed\nlogin attempts
+Active --> DeletionPending : User requests\naccount deletion
+
+state Suspended {
+    Suspended : Account temporarily disabled
+    Suspended : Requires admin action
+    Suspended : Cannot login
+}
+
+Suspended --> Active : Admin reactivates
+
+state Locked {
+    Locked : Too many failed logins
+    Locked : Auto-locked for security
+    Locked : Requires password reset
+}
+
+Locked --> Active : Password reset\ncompleted
+
+state DeletionPending {
+    DeletionPending : 30-day grace period
+    DeletionPending : Account deactivated
+    DeletionPending : Can be restored
+}
+
+DeletionPending --> Active : User cancels\ndeletion
+DeletionPending --> Deleted : 30 days passed
+
+state Deleted {
+    Deleted : Permanently deleted
+    Deleted : All data erased
+    Deleted : Cannot be restored
+}
+
+Deleted --> [*]
+
+note right of Unverified
+    **DSGVO Art. 6:**
+    Legitimate interest in
+    email verification
+    
+    Auto-delete after 24h
+    if not verified
+end note
+
+note right of Active
+    **MFA Methods:**
+    - TOTP (Authenticator)
+    - YubiKey (Hardware)
+    - FIDO2/WebAuthn
+    - Recovery Codes
+end note
+
+note right of DeletionPending
+    **DSGVO Art. 17:**
+    Right to Erasure
+    
+    30-day grace period allows
+    accidental deletion recovery
+end note
+
+note right of Deleted
+    **Secure Deletion:**
+    1. Delete all messages
+    2. Delete all keys (3x overwrite)
+    3. Delete MFA methods
+    4. Delete user data (3x overwrite)
+    5. Log audit event (7 years)
+end note
+
+note left of Suspended
+    **Reasons:**
+    - Terms of Service violation
+    - Security incident
+    - Legal requirement
+    - Abuse report
+end note
+
+@enduml

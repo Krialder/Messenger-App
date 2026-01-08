@@ -1,0 +1,125 @@
+@startuml Use Case Diagram
+!theme plain
+
+left to right direction
+
+actor "User" as User
+actor "Administrator" as Admin
+actor "System\n(Automated)" as System
+
+rectangle "Secure Messenger System" {
+    ' User Use Cases
+    usecase UC001 as "UC-001: Registration"
+    usecase UC002 as "UC-002: Login & MFA"
+    usecase UC003 as "UC-003: Send Message"
+    usecase UC004 as "UC-004: Receive Message"
+    usecase UC005 as "UC-005: Add Contact"
+    usecase UC006 as "UC-006: Edit Profile"
+    usecase UC007 as "UC-007: Switch Theme"
+    usecase UC008 as "UC-008: Export Data\n(DSGVO)"
+    usecase UC009 as "UC-009: Delete Account\n(DSGVO)"
+    usecase UC014 as "UC-014: Manage MFA Methods"
+    usecase UC019 as "UC-019: Enable Privacy Mode"
+    
+    ' Admin Use Cases
+    usecase UC010 as "UC-010: View Audit Logs"
+    usecase UC011 as "UC-011: System Monitoring"
+    usecase UC012 as "UC-012: Compliance Reports"
+    usecase UC013 as "UC-013: User Management"
+    
+    ' System Use Cases
+    usecase UC015 as "UC-015: Key Rotation"
+    usecase UC016 as "UC-016: Backup"
+    usecase UC017 as "UC-017: Health Check"
+    usecase UC018 as "UC-018: Data Archiving"
+}
+
+' User connections
+User --> UC001
+User --> UC002
+User --> UC003
+User --> UC004
+User --> UC005
+User --> UC006
+User --> UC007
+User --> UC008
+User --> UC009
+User --> UC014
+User --> UC019
+
+' Admin connections
+Admin --> UC010
+Admin --> UC011
+Admin --> UC012
+Admin --> UC013
+
+' System connections
+System --> UC015
+System --> UC016
+System --> UC017
+System --> UC018
+
+' Dependencies
+UC003 ..> UC002 : <<requires>>
+UC004 ..> UC002 : <<requires>>
+UC003 ..> UC005 : <<requires>>
+UC014 ..> UC002 : <<requires>>
+UC019 ..> UC002 : <<requires>>
+UC006 ..> UC002 : <<requires>>
+UC005 ..> UC002 : <<requires>>
+UC008 ..> UC002 : <<requires>>
+UC009 ..> UC002 : <<requires>>
+UC007 ..> UC002 : <<requires>>
+UC010 ..> UC013 : <<uses>>
+UC012 ..> UC010 : <<includes>>
+
+note right of UC002
+  **Multi-Factor Authentication:**
+  - TOTP (Authenticator Apps)
+  - YubiKey (Hardware Token)
+  - FIDO2/WebAuthn
+  - Recovery Codes
+end note
+
+note right of UC003
+  **Send Message requires:**
+  - User must be logged in
+  - Recipient must be in contacts
+  - Recipient's public key available
+end note
+
+note right of UC014
+  **MFA Management:**
+  - Add/Remove MFA methods
+  - Set primary/backup methods
+  - Generate recovery codes
+  - Configure YubiKey/FIDO2
+end note
+
+note right of UC019
+  **Privacy Mode (Layer 3):**
+  - Display encryption
+  - Anti-shoulder-surfing
+  - PIN-based decryption
+  - Auto-obfuscation (5s timer)
+end note
+
+note right of UC008
+  **DSGVO Art. 20:**
+  Right to Data Portability
+  User can export all personal data
+end note
+
+note right of UC009
+  **DSGVO Art. 17:**
+  Right to Erasure
+  30-day grace period
+end note
+
+note left of UC015
+  **Forward Secrecy:**
+  Automatic key rotation
+  every 24 hours
+end note
+
+@enduml

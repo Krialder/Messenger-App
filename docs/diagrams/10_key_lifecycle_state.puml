@@ -1,0 +1,102 @@
+﻿@startuml Key Lifecycle State Diagram
+!theme plain
+
+title Cryptographic Key Lifecycle (Forward Secrecy)
+
+[*] --> Active : Key Generation
+
+state Active {
+    Active : Key is valid
+    Active : Can be used for encryption
+    Active : Publicly distributed
+}
+
+Active --> Expired : After message sent\nOR 24h passed
+
+state Expired {
+    Expired : No longer used for new messages
+    Expired : Existing messages still decryptable
+    Expired : Marked for rotation
+}
+
+Expired --> Rotated : Key rotation\nprocess initiated
+
+state Rotated {
+    Rotated : New key pair generated
+    Rotated : Old key marked as rotated
+    Rotated : Scheduled for secure deletion
+}
+
+Rotated --> Deleted : Secure deletion\nprocess
+
+state Deleted {
+    Deleted : Key permanently erased
+    Deleted : 3x memory overwrite
+    Deleted : Forward Secrecy achieved
+}
+
+Deleted --> [*]
+
+Active --> Revoked : Security incident\nor user request
+
+state Revoked {
+    Revoked : Key compromised
+    Revoked : Immediate invalidation
+    Revoked : Cannot be used
+}
+
+Revoked --> Deleted
+
+note right of Active
+    **Active Key:**
+    - Distributed via Key Service
+    - Cached in Redis (TTL: 24h)
+    - Used for new messages
+    - One active key per user per type
+end note
+
+note right of Expired
+    **Expiration Triggers:**
+    - After each message (ephemeral)
+    - Every 24 hours (user keys)
+    - On key rotation schedule
+    - On security policy
+end note
+
+note right of Rotated
+    **Key Rotation:**
+    1. Generate new key pair
+    2. Store new public key
+    3. Distribute to contacts
+    4. Mark old key as rotated
+    5. Schedule deletion
+    
+    **Frequency:**
+    - Ephemeral: Per message
+    - User keys: Every 24h
+end note
+
+note right of Deleted
+    **Secure Deletion (DoD 5220.22-M):**
+    1. ZeroMemory()
+    2. Random data fill
+    3. ZeroMemory()
+    4. Random data fill
+    5. ZeroMemory()
+    
+    **Result:**
+    Old messages cannot be
+    decrypted with new keys
+    = Forward Secrecy ✓
+end note
+
+note left of Revoked
+    **Revocation Reasons:**
+    - Key compromise detected
+    - Security breach
+    - User reported compromise
+    - Admin action
+    - Compliance requirement
+end note
+
+@enduml

@@ -1,0 +1,135 @@
+@startuml System Architecture
+!theme plain
+skinparam componentStyle rectangle
+skinparam backgroundColor #FEFEFE
+skinparam shadowing false
+
+title System Architecture (v3.0)
+
+package "CLIENT TIER" #E8F5E9 {
+    component "WPF Desktop Application" as WPF {
+        [UI Layer\n(MVVM)] as UI
+        [Theme Manager\n(Dark/Midnight/Light)] as Theme
+        [SignalR Hub\nConnection] as SignalR
+        
+        package "Client Cryptography Library v3.0" {
+            [Layer 3\nDisplay Encryption\n(AES-256-GCM + PIN)] as Layer3
+            [Layer 2\nLocal Storage\n(AES-256-GCM + Argon2id)] as Layer2
+            [Layer 1\nE2E Transport\n(ChaCha20-Poly1305 + X25519)] as Layer1
+            [Master Key\nDerivation] as MasterKey
+        }
+        
+        database "Local Storage\n(Encrypted SQLite)" as LocalDB
+    }
+}
+
+package "API GATEWAY TIER" #FFF9C4 {
+    component "API Gateway (Ocelot/YARP)" as Gateway {
+        [Authentication &\nAuthorization\n(JWT Validation)] as GWAuth
+        [Rate Limiting &\nThrottling] as RateLimit
+        [Request Routing &\nLoad Balancing] as Routing
+        [SSL Termination] as SSL
+    }
+}
+
+package "SERVICE TIER" #E3F2FD {
+    [Authentication\nService\n(JWT + 2FA)] as AuthSvc
+    [Message\nService\n(E2E Storage)] as MsgSvc
+    [Key Management\nService\n(Rotation)] as KeySvc
+    [User\nService\n(Profiles + Salts)] as UserSvc
+    [Notification\nService\n(SignalR Hub)] as NotifSvc
+    [Audit Log\nService\n(DSGVO)] as AuditSvc
+}
+
+package "DATA TIER" #F3E5F5 {
+    database "PostgreSQL 16" as PG {
+        [messenger_auth\n(users + master_key_salt)] as DB_Auth
+        [messenger_messages\n(E2E encrypted only)] as DB_Msg
+        [messenger_keys\n(public keys)] as DB_Keys
+        [messenger_users\n(profiles)] as DB_Users
+        [messenger_audit\n(7yr retention)] as DB_Audit
+    }
+    
+    database "Redis 7" as Redis {
+        [Cache\n(User Profiles)] as Cache
+        [Sessions\n(JWT Blacklist)] as Sessions
+        [Presence\n(Online Status)] as Presence
+    }
+    
+    queue "RabbitMQ 3" as MQ {
+        [Messages] as MQ_Msg
+        [Events\n(MessageSent, etc.)] as MQ_Events
+        [Pub/Sub] as MQ_PubSub
+    }
+}
+
+WPF -down-> Gateway : HTTPS/WSS
+Layer2 -down-> LocalDB : Encrypted\nStorage
+MasterKey -down-> Layer2 : Master Key
+
+Gateway -down-> AuthSvc
+Gateway -down-> MsgSvc
+Gateway -down-> KeySvc
+Gateway -down-> UserSvc
+Gateway -down-> NotifSvc
+Gateway -down-> AuditSvc
+
+AuthSvc -down-> DB_Auth
+AuthSvc -down-> Sessions
+
+MsgSvc -down-> DB_Msg
+MsgSvc -down-> MQ_Events
+
+KeySvc -down-> DB_Keys
+
+UserSvc -down-> DB_Users
+UserSvc -down-> Cache
+
+NotifSvc -down-> MQ_PubSub
+NotifSvc -down-> Presence
+
+AuditSvc -down-> DB_Audit
+
+note right of Layer2
+  **Layer 2 (v3.0):**
+  - Master Key = Argon2id(Password, Salt)
+  - AES-256-GCM encryption
+  - Local SQLite database
+  - Private Keys encrypted
+  - Message cache encrypted
+  - Performance: ~0.5ms
+end note
+
+note right of Layer1
+  **Layer 1:**
+  - ChaCha20-Poly1305 (AEAD)
+  - X25519 key exchange
+  - Ephemeral keys
+  - Forward Secrecy
+  - Performance: ~1-2ms
+end note
+
+note right of DB_Msg
+  **Zero-Knowledge:**
+  Server stores only
+  Layer 1 encrypted data.
+  Cannot read messages!
+end note
+
+note right of DB_Auth
+  **v3.0 Schema:**
+  - master_key_salt added
+  - crypto_profiles removed
+  - Salt stored
+  - Master Key never stored
+end note
+
+note bottom of MQ
+  **Event-Driven:**
+  - MessageSentEvent
+  - MessageDeliveredEvent
+  - MessageReadEvent
+  - KeyRotationEvent
+end note
+
+@enduml

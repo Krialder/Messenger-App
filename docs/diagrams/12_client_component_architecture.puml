@@ -1,0 +1,208 @@
+@startuml Client Component Architecture
+!theme plain
+
+title WPF Client Application - Component Architecture (v3.0)
+
+package "Presentation Layer" {
+    component [Views\n(XAML)] as Views
+    component [ViewModels\n(MVVM)] as ViewModels
+    component [Theme Manager] as ThemeManager
+    component [Value Converters] as Converters
+    component [Custom Controls] as Controls
+}
+
+package "Business Logic Layer" {
+    component [Messaging Service] as MsgService
+    component [Contact Service] as ContactService
+    component [Authentication Service] as AuthService
+    component [Profile Service] as ProfileService
+}
+
+package "Cryptography Layer" {
+    package "Layer 1\n(E2E Transport)" {
+        component [ChaCha20-Poly1305\nCipher] as Layer1
+        component [X25519\nKey Exchange] as KeyExchange
+        component [Ephemeral\nKey Manager] as EphemeralKeys
+    }
+    
+    package "Layer 2\n(Local Storage)" {
+        component [Master Key\nDerivation\n(Argon2id)] as MasterKeyDeriv
+        component [AES-256-GCM\nLocal Encryption] as LocalEncrypt
+        component [Storage\nManager] as StorageMgr
+    }
+    
+    package "Layer 3\n(Display - Optional)" {
+        component [Display\nEncryption\n(AES-256-GCM)] as DisplayEncrypt
+        component [Device Key\n(DPAPI + PIN)] as DeviceKey
+        component [Auto-Obfuscation] as AutoObfuscate
+    }
+}
+
+package "Communication Layer" {
+    component [HTTP Client\n(REST API)] as HttpClient
+    component [SignalR Hub\n(Real-time)] as SignalRHub
+    component [WebSocket Manager] as WSManager
+}
+
+package "Data Layer" {
+    component [Local Cache\n(Encrypted SQLite)] as Cache
+    component [Secure Storage\n(DPAPI)] as SecureStorage
+    component [Message Repository] as MsgRepo
+}
+
+' Presentation Layer connections
+Views --> ViewModels : Data Binding
+ViewModels --> ThemeManager : Apply Theme
+Views --> Converters : Value Conversion
+Views --> Controls : Custom UI
+
+' Business Logic connections
+ViewModels --> MsgService
+ViewModels --> ContactService
+ViewModels --> AuthService
+ViewModels --> ProfileService
+
+' Cryptography Layer 1 connections
+MsgService --> Layer1 : E2E Encryption
+MsgService --> KeyExchange : Get Shared\nSecret
+KeyExchange --> EphemeralKeys : Generate\nEphemeral Keys
+
+' Cryptography Layer 2 connections
+AuthService --> MasterKeyDeriv : Derive Master Key\nArgon2id(Password, Salt)
+MasterKeyDeriv --> LocalEncrypt : Master Key
+MsgService --> LocalEncrypt : Cache Messages
+LocalEncrypt --> StorageMgr : Encrypted Data
+
+' Cryptography Layer 3 connections
+ViewModels --> DisplayEncrypt : Obfuscate\nMessages
+DisplayEncrypt --> DeviceKey : Get Device\nKey
+DisplayEncrypt --> AutoObfuscate : Auto\nRe-encrypt
+
+' Communication connections
+Layer1 --> HttpClient : Encrypted\nMessage
+MsgService --> HttpClient : API Calls
+MsgService --> SignalRHub : Real-time\nEvents
+SignalRHub --> WSManager : WebSocket
+
+HttpClient --> Cache : Response Cache
+AuthService --> SecureStorage : Store Session
+
+' Data Layer connections
+MsgService --> MsgRepo : Store/Load\nMessages
+MsgService --> Cache : Message Cache\n(Encrypted)
+StorageMgr --> Cache : Encrypted Local\nStorage
+StorageMgr --> SecureStorage : Private Keys\n(Encrypted)
+
+cloud "API Gateway" as Gateway
+
+HttpClient --> Gateway : HTTPS
+SignalRHub --> Gateway : WSS
+
+note right of ThemeManager
+    **Available Themes:**
+    - Dark Mode (Default)
+    - Midnight Mode
+    - Light Mode
+    
+    Dynamic theme switching
+    without restart
+end note
+
+note right of MasterKeyDeriv
+    **Master Key Derivation:**
+    Master Key = Argon2id(
+        password: User Password,
+        salt: User Salt (from server),
+        memory: 64 MB,
+        iterations: 3
+    )
+    
+    **Performance:** ~100-200ms
+    **Executed:** Once per login
+end note
+
+note right of LocalEncrypt
+    **Local Storage Encryption:**
+    - Algorithm: AES-256-GCM
+    - Key: Master Key
+    - Encrypts:
+      • Private Keys
+      • Message Cache
+      • Contacts
+      • Settings
+    
+    **Performance:** ~0.5ms per operation
+end note
+
+note right of Layer1
+    **E2E Transport Encryption:**
+    - Algorithm: ChaCha20-Poly1305
+    - Key Exchange: X25519
+    - Ephemeral keys per message
+    - Forward Secrecy
+    
+    **Performance:** ~1-2ms
+end note
+
+note right of DisplayEncrypt
+    **Display Obfuscation:**
+    - Algorithm: AES-256-GCM
+    - Device Key: DPAPI + PIN
+    - Auto re-encrypt after 5s
+    - Optional Privacy Mode
+end note
+
+note bottom of SecureStorage
+    **Protected Storage:**
+    - Windows DPAPI
+    - Private Keys encrypted
+      with Master Key
+    - Access control
+    - Secure deletion
+end note
+
+note bottom of Cache
+    **Encrypted Local Cache:**
+    - SQLite database
+    - All data encrypted
+      with Master Key
+    - Unreadable without password
+    - Protection: Device theft
+end note
+
+note bottom of SignalRHub
+    **Real-time Features:**
+    - Push notifications
+    - Typing indicators
+    - Online status
+    - Read receipts
+    - Automatic reconnection
+end note
+
+note right of MsgService
+    **Messaging Operations:**
+    - Send Message (Layer 1)
+    - Cache Locally (Layer 2)
+    - Receive Message
+    - Message History
+    - Search Messages
+end note
+
+note right of AuthService
+    **Authentication:**
+    - Login ? Derive Master Key
+    - Unlock Local Storage
+    - Logout ? Lock Storage
+    - Token Management
+end note
+
+note as N1
+    **v3.0 Architecture Changes:**
+    ? Layer 1: E2E Transport only
+    ? Layer 2: Local Storage Encryption
+    ? Layer 3: Display Encryption (optional)
+    ? Removed: Hybrid Cipher complexity
+    ? Performance: 7x faster messaging
+end note
+
+@enduml

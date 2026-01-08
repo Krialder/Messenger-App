@@ -1,0 +1,125 @@
+﻿@startuml Layer 3 Display Encryption Flow
+!theme plain
+skinparam backgroundColor #FEFEFE
+
+title Layer 3 - Local Display Encryption (Privacy Mode)
+
+actor User
+participant "Message\nViewModel" as ViewModel
+participant "Display\nEncryption\nService" as DisplaySvc
+participant "Auto-Obfuscation\nService" as AutoObfuscate
+participant "Settings\nManager" as Settings
+participant "UI\nComponent" as UI
+
+== Message Received & Decrypted (Layer 1 + 2) ==
+
+User -> ViewModel : Message received\n(Already decrypted L1+L2)
+activate ViewModel
+
+ViewModel -> Settings : Check Privacy Mode?
+activate Settings
+Settings --> ViewModel : Enabled = true
+deactivate Settings
+
+ViewModel -> DisplaySvc : EncryptForDisplay(plaintext)
+activate DisplaySvc
+
+note right of DisplaySvc
+  **Layer 3 Encryption:**
+  1. Get Device Key (DPAPI + User-PIN)
+  2. AES-256-GCM Encrypt
+  3. Clear plaintext from RAM
+end note
+
+DisplaySvc -> DisplaySvc : Derive Device Key\nfrom DPAPI + PIN Hash
+DisplaySvc -> DisplaySvc : AES-256-GCM Encrypt
+DisplaySvc --> ViewModel : Encrypted Display Data
+deactivate DisplaySvc
+
+ViewModel -> UI : Render Obfuscated
+activate UI
+UI --> User : Show: 🔒 ████████████
+deactivate UI
+
+deactivate ViewModel
+
+== User Wants to View Message ==
+
+User -> UI : Click [👁 Anzeigen]
+activate UI
+
+UI -> ViewModel : RequestDecrypt()
+activate ViewModel
+
+ViewModel -> DisplaySvc : ValidatePIN(userInput)
+activate DisplaySvc
+
+alt PIN Correct
+    DisplaySvc -> DisplaySvc : Decrypt Layer 3
+    DisplaySvc --> ViewModel : Plaintext (temp)
+    deactivate DisplaySvc
+    
+    ViewModel -> UI : Update Display
+    UI --> User : Show: "Hallo Bob, wie geht's?"\n⏳ Auto-Hide in 5s
+    
+    ViewModel -> AutoObfuscate : StartTimer(messageId, 5s)
+    activate AutoObfuscate
+    
+    AutoObfuscate -> AutoObfuscate : Wait 5 seconds...
+    
+    AutoObfuscate -> ViewModel : Timeout Reached
+    
+    ViewModel -> DisplaySvc : Re-encrypt for Display
+    activate DisplaySvc
+    DisplaySvc --> ViewModel : Encrypted Display Data
+    deactivate DisplaySvc
+    
+    ViewModel -> UI : Update Display
+    UI --> User : Show: 🔒 ████████████
+    deactivate AutoObfuscate
+    
+else PIN Incorrect
+    DisplaySvc --> ViewModel : Unauthorized
+    deactivate DisplaySvc
+    ViewModel -> UI : Show Error
+    UI --> User : ❌ Falscher PIN\n(2 Versuche übrig)
+end
+
+deactivate ViewModel
+deactivate UI
+
+== User Wants Persistent Display ==
+
+User -> UI : Click [🔓 Dauerhaft anzeigen]
+activate UI
+
+UI -> ViewModel : RequestPersistentDecrypt()
+activate ViewModel
+
+ViewModel -> DisplaySvc : ValidatePIN(userInput)
+activate DisplaySvc
+
+alt PIN Correct
+    DisplaySvc -> DisplaySvc : Decrypt Layer 3
+    DisplaySvc --> ViewModel : Plaintext (persistent)
+    deactivate DisplaySvc
+    
+    ViewModel -> AutoObfuscate : CancelTimer(messageId)
+    activate AutoObfuscate
+    AutoObfuscate --> ViewModel : Timer Cancelled
+    deactivate AutoObfuscate
+    
+    ViewModel -> UI : Update Display
+    UI --> User : Show: "Hallo Bob, wie geht's?"\n🔓 Dauerhaft sichtbar
+    
+else PIN Incorrect
+    DisplaySvc --> ViewModel : Unauthorized
+    deactivate DisplaySvc
+    ViewModel -> UI : Show Error
+    UI --> User : ❌ Falscher PIN
+end
+
+deactivate ViewModel
+deactivate UI
+
+@enduml

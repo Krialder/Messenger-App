@@ -1,0 +1,124 @@
+﻿@startuml Encryption Layers Architecture
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam sequenceMessageAlign center
+
+title Three-Layer Encryption Architecture (v3.0)
+
+actor "Alice" as Alice
+participant "Layer 1\nE2E Transport" as L1
+participant "Server\nZero Knowledge" as Server
+participant "Layer 1\nE2E Decrypt" as L1D
+participant "Layer 2\nLocal Storage" as L2
+participant "Layer 3\nDisplay" as L3
+actor "Bob" as Bob
+
+== Alice Sends Message ==
+
+Alice -> L1 : Plaintext:\n"Hallo Bob"
+activate L1
+
+note right of L1
+  **Layer 1 Encryption:**
+  1. Generate Ephemeral Key (X25519)
+  2. ECDH with Bob's Public Key
+  3. Derive Shared Secret (HKDF)
+  4. ChaCha20-Poly1305 Encryption
+  
+  **Performance:** ~1-2ms
+end note
+
+L1 -> Server : Encrypted Message
+deactivate L1
+activate Server
+
+note right of Server
+  **Zero-Knowledge:**
+  Server has NO access to:
+  - Plaintext content
+  - Encryption keys
+  - Master Keys
+end note
+
+Server -> Bob : Push Notification
+Server -> L1D : Deliver Encrypted
+deactivate Server
+
+== Bob Receives Message ==
+
+activate L1D
+L1D -> L1D : Decrypt with\nPrivate Key
+
+note right of L1D
+  **Layer 1 Decryption:**
+  1. Retrieve Ephemeral Public Key
+  2. ECDH with own Private Key
+  3. Derive Shared Secret
+  4. ChaCha20-Poly1305 Decryption
+  5. Verify Poly1305 MAC
+  6. **Delete Ephemeral Key**
+     (Forward Secrecy!)
+  
+  **Performance:** ~1-2ms
+end note
+
+L1D -> L2 : Plaintext:\n"Hallo Bob"
+deactivate L1D
+activate L2
+
+note right of L2
+  **Layer 2 Local Storage:**
+  1. Master Key = Argon2id(Password, Salt)
+  2. AES-256-GCM Encryption
+  3. Store in SQLite DB
+  
+  **Purpose:** Encryption at Rest
+  **Protection:** Device theft, Forensics
+  **Performance:** ~0.5ms
+end note
+
+L2 -> L3 : Encrypted Cache
+deactivate L2
+activate L3
+
+note right of L3
+  **Layer 3 Display:**
+  1. Derive Device Key (DPAPI + PIN)
+  2. AES-256-GCM Encryption
+  3. Obfuscate in UI
+  
+  **Purpose:** Anti-Shoulder-Surfing
+  **Performance:** ~0.5ms
+end note
+
+L3 -> Bob : Display:\n🔒 ████████
+deactivate L3
+
+== Bob Views Message ==
+
+Bob -> L3 : Click [View]\nEnter PIN
+activate L3
+
+L3 -> L3 : Validate PIN\nDecrypt
+
+L3 -> Bob : Show:\n"Hallo Bob"\n(5 seconds)
+deactivate L3
+
+Bob -> L3 : Auto Re-encrypt
+activate L3
+L3 -> Bob : Display:\n🔒 ████████
+deactivate L3
+
+note over Alice, Bob
+  **Layer Summary:**
+  - Layer 1: E2E Transport
+    (ChaCha20-Poly1305 + X25519)
+  - Layer 2: Local Storage
+    (AES-256-GCM + Argon2id Master Key)
+  - Layer 3: Display (Optional)
+    (AES-256-GCM + DPAPI + PIN)
+  
+  **Total:** ~2-3ms (7x faster than v2.x)
+end note
+
+@enduml

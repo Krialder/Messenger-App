@@ -1,0 +1,81 @@
+@startuml Key Rotation Sequence
+!theme plain
+
+title Automatic Key Rotation - Forward Secrecy
+
+participant "Timer\n(24h)" as Timer
+participant "Key Rotation\nService" as KeyRotSvc
+participant "Database" as DB
+participant "Key Mgmt\nService" as KeyMgmt
+participant "RabbitMQ" as Queue
+participant "Notification\nService" as NotifSvc
+participant "Client" as Client
+
+Timer -> KeyRotSvc : Scheduled Task\n(every 24 hours)
+activate KeyRotSvc
+
+KeyRotSvc -> DB : SELECT Users\nwith expired keys
+activate DB
+DB --> KeyRotSvc : User List
+deactivate DB
+
+loop For each user
+    KeyRotSvc -> KeyRotSvc : Generate new\nKey Pair (X25519)
+    
+    KeyRotSvc -> DB : Store new Public Key
+    activate DB
+    DB --> KeyRotSvc : Stored
+    deactivate DB
+    
+    KeyRotSvc -> DB : Mark old key\nas expired
+    activate DB
+    DB --> KeyRotSvc : Updated
+    deactivate DB
+    
+    KeyRotSvc -> KeyRotSvc : Securely delete\nold Private Key\n(3x overwrite)
+    
+    note right of KeyRotSvc
+        **Secure Deletion:**
+        1. ZeroMemory()
+        2. Random data fill
+        3. ZeroMemory()
+        4. Random data fill
+        5. ZeroMemory()
+        (DoD 5220.22-M)
+    end note
+    
+    KeyRotSvc -> Queue : Publish\nKeyRotationEvent
+    activate Queue
+    Queue --> KeyRotSvc : Acknowledged
+    deactivate Queue
+end
+
+deactivate KeyRotSvc
+
+Queue -> NotifSvc : KeyRotationEvent
+activate NotifSvc
+NotifSvc -> Client : SignalR Push\nOnKeyRotated
+activate Client
+deactivate NotifSvc
+
+Client -> Client : Fetch new Public Keys\nfor contacts
+
+Client -> KeyMgmt : GET /api/keys/public/{userId}
+activate KeyMgmt
+KeyMgmt --> Client : New Public Key
+deactivate KeyMgmt
+
+Client -> Client : Update local\nkey cache
+deactivate Client
+
+note right of Client
+    **Forward Secrecy Achieved:**
+    - Old messages cannot be decrypted
+      with new keys
+    - Each message uses unique
+      ephemeral key
+    - Key compromise affects only
+      future messages
+end note
+
+@enduml

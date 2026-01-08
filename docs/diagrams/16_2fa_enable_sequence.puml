@@ -1,0 +1,123 @@
+@startuml MFA Enable Sequence
+!theme plain
+
+title Enable Multi-Factor Authentication (MFA) - TOTP Method
+
+actor User
+participant "UI" as UI
+participant "API Gateway" as Gateway
+participant "Auth Service" as AuthSvc
+participant "Database" as DB
+
+User -> UI : Open Security Settings
+activate UI
+
+UI -> UI : Show "Enable MFA" button
+
+User -> UI : Click "Enable MFA" → Select "TOTP"
+
+UI -> Gateway : POST /api/auth/mfa/enable/totp
+activate Gateway
+
+Gateway -> Gateway : Validate JWT
+
+Gateway -> AuthSvc : Forward request
+activate AuthSvc
+
+AuthSvc -> AuthSvc : Generate TOTP Secret\n(Base32 encoded)
+
+note right of AuthSvc
+    **TOTP Generation:**
+    - Algorithm: SHA-1
+    - Period: 30 seconds
+    - Digits: 6
+    - Secret length: 32 bytes
+    - RFC 6238 compliant
+end note
+
+AuthSvc -> DB : INSERT INTO mfa_methods\n(type='totp', secret_encrypted)
+activate DB
+DB --> AuthSvc : Stored
+deactivate DB
+
+AuthSvc -> AuthSvc : Generate QR Code\n(otpauth://totp/...)
+
+AuthSvc --> Gateway : QR Code + Secret
+deactivate AuthSvc
+
+Gateway --> UI : QR Code Image + Setup Info
+deactivate Gateway
+
+UI --> User : Display QR Code
+deactivate UI
+
+User -> User : Scan QR Code with\nAuthenticator App\n(Google Auth, Authy, etc.)
+
+activate UI
+User -> UI : Enter confirmation code
+
+UI -> Gateway : POST /api/auth/mfa/verify/totp\n{code: "123456"}
+activate Gateway
+
+Gateway -> AuthSvc : Verify TOTP code
+activate AuthSvc
+
+AuthSvc -> AuthSvc : Validate TOTP
+
+alt Code is valid
+    AuthSvc -> DB : UPDATE users SET mfa_enabled = true\nUPDATE mfa_methods SET is_verified = true
+    activate DB
+    DB --> AuthSvc : Updated
+    deactivate DB
+    
+    AuthSvc -> AuthSvc : Generate 10 recovery codes
+    
+    note right of AuthSvc
+        **Recovery Codes:**
+        - 10 single-use codes
+        - Argon2id hashed
+        - For MFA device loss
+        - Stored in recovery_codes table
+    end note
+    
+    AuthSvc -> DB : INSERT INTO recovery_codes\n(10 hashed codes)
+    activate DB
+    DB --> AuthSvc : Stored
+    deactivate DB
+    
+    AuthSvc --> Gateway : Success + Recovery Codes
+    Gateway --> UI : MFA Enabled + Recovery Codes
+    
+    UI --> User : Show recovery codes\n"Save these securely!"
+    deactivate Gateway
+    deactivate AuthSvc
+    
+    User -> User : Save recovery codes\n(Print or password manager)
+    
+else Code is invalid
+    AuthSvc --> Gateway : Error: Invalid code
+    deactivate AuthSvc
+    Gateway --> UI : Error
+    deactivate Gateway
+    UI --> User : "Invalid code, try again"
+end
+
+deactivate UI
+
+note over User, DB
+    **Next Login:**
+    User will need to provide:
+    1. Username + Password
+    2. MFA Token (TOTP/YubiKey/FIDO2)
+    
+    **Recovery Options:**
+    - Recovery codes (10x single-use)
+    - Account recovery via email
+    
+    **Other MFA Methods:**
+    - YubiKey: Challenge-Response
+    - FIDO2: WebAuthn
+    See diagram 18_mfa_login_sequence.puml
+end note
+
+@enduml

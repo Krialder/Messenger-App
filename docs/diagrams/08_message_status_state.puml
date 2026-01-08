@@ -1,0 +1,74 @@
+﻿@startuml Message Status State Diagram
+!theme plain
+
+title Message Status Lifecycle
+
+[*] --> Sent : New Message
+
+state Sent {
+    Sent : Message created and sent
+    Sent : Stored on server (encrypted)
+}
+
+Sent --> Delivered : Server delivered\nto recipient's device
+
+state Delivered {
+    Delivered : Message received by client
+    Delivered : Not yet opened
+}
+
+Delivered --> Read : User opened\nand viewed message
+
+state Read {
+    Read : Message opened and read
+    Read : Read receipt sent
+}
+
+Read --> Archived : User archives\nconversation
+Read --> Deleted : User deletes\nmessage
+
+state Archived {
+    Archived : Hidden from main view
+    Archived : Can be restored
+}
+
+state Deleted {
+    Deleted : Marked as deleted
+    Deleted : Can be permanently removed
+}
+
+Sent --> Failed : Delivery failed
+
+state Failed {
+    Failed : Could not deliver
+    Failed : May retry
+}
+
+Failed --> Sent : Retry delivery
+
+Archived --> Read : User restores
+
+note right of Sent
+    **Status: sent**
+    - Message encrypted
+    - Stored on server
+    - Ephemeral key generated
+    - Awaiting delivery
+end note
+
+note right of Delivered
+    **Status: delivered**
+    - Push notification sent
+    - Client acknowledged
+    - Waiting for user to open
+end note
+
+note right of Read
+    **Status: read**
+    - User viewed message
+    - Read timestamp recorded
+    - Read receipt (✓✓) sent
+    - Ephemeral key deleted
+end note
+
+@enduml

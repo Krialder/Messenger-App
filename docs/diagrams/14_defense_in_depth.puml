@@ -1,0 +1,157 @@
+@startuml Defense in Depth Security Architecture
+!theme plain
+
+title Defense in Depth - Multi-Layer Security (v3.0)
+
+package "Layer 1:\nNetwork Security" {
+    component [Firewall Rules] as FW
+    component [VPN /\nPrivate Network] as VPN
+    component [DDoS Protection] as DDoS
+    component [Rate Limiting] as RateLimit
+}
+
+package "Layer 2:\nAPI Gateway Security" {
+    component [SSL/TLS\nTermination] as TLS
+    component [JWT Validation] as JWT
+    component [API Rate\nLimiting] as APIRate
+    component [IP Whitelisting] as IPWhite
+    component [Request Filtering] as ReqFilter
+}
+
+package "Layer 3:\nApplication Security" {
+    component [Input Validation] as InputVal
+    component [SQL Injection\nPrevention\n(Parameterized Queries)] as SQLPrev
+    component [CSRF Protection] as CSRF
+    component [XSS Prevention] as XSS
+    component [Authentication] as Auth
+    component [Authorization\n(RBAC)] as Authz
+}
+
+package "Layer 4:\nData Security" {
+    component [Encryption at Rest\n(PostgreSQL + SQLite)] as EncryptRest
+    component [Encryption in Transit\n(TLS 1.3)] as EncryptTransit
+    component [Encryption in Memory\n(Secure Strings)] as EncryptMem
+    component [Local Storage Encryption\nLayer 2\n(AES-256-GCM + Argon2id)] as LocalEnc
+    component [E2E Transport\nLayer 1\n(ChaCha20-Poly1305 + X25519)] as E2EEnc
+    component [Display Encryption\nLayer 3 (Optional)\n(Device Key + PIN)] as DisplayEnc
+}
+
+package "Layer 5:\nAccess Control" {
+    component [Authentication\n(JWT + 2FA)] as AuthControl
+    component [Authorization\n(RBAC)] as AuthzControl
+    component [Least Privilege\nPrinciple] as LeastPriv
+    component [Audit Logging] as AuditLog
+    component [Session Management] as SessionMgmt
+}
+
+package "Layer 6:\nMonitoring & Response" {
+    component [Security Monitoring\n(SIEM)] as SIEM
+    component [Intrusion Detection] as IDS
+    component [Log Analysis] as LogAnalysis
+    component [Incident Response] as IncidentResp
+    component [Automated Alerts] as Alerts
+}
+
+cloud "External\nAttacker" as Attacker
+actor "Authenticated\nUser" as User
+
+Attacker -down-> FW
+FW -down-> VPN
+VPN -down-> DDoS
+DDoS -down-> RateLimit
+
+RateLimit -down-> TLS
+TLS -down-> JWT
+JWT -down-> APIRate
+APIRate -down-> ReqFilter
+
+ReqFilter -down-> InputVal
+InputVal -down-> SQLPrev
+SQLPrev -down-> CSRF
+CSRF -down-> Auth
+Auth -down-> Authz
+
+Authz -down-> EncryptRest
+EncryptRest -down-> EncryptTransit
+EncryptTransit -down-> LocalEnc
+LocalEnc -down-> E2EEnc
+E2EEnc -down-> DisplayEnc
+
+DisplayEnc -down-> AuthControl
+AuthControl -down-> AuthzControl
+AuthzControl -down-> LeastPriv
+LeastPriv -down-> AuditLog
+
+AuditLog -down-> SIEM
+SIEM -down-> IDS
+IDS -down-> LogAnalysis
+LogAnalysis -down-> Alerts
+
+note right of FW
+  **Network Perimeter:**
+  - Block malicious IPs
+  - Port filtering
+  - Geographic restrictions
+  - Connection limits
+end note
+
+note right of TLS
+  **Transport Security:**
+  - TLS 1.3 only
+  - Strong cipher suites
+  - Certificate pinning
+  - HSTS enabled
+end note
+
+note right of InputVal
+  **Application Hardening:**
+  - Validate all inputs
+  - Sanitize outputs
+  - Secure headers
+  - Content Security Policy
+end note
+
+note right of DisplayEnc
+  **Three-Layer Encryption (v3.0):**
+  
+  **Layer 3: Display Encryption (Optional - Privacy Mode)**
+  - Algorithm: AES-256-GCM
+  - Key: Device Key (DPAPI + PIN)
+  - Purpose: Anti-shoulder-surfing
+  - Status: Optional feature, user-activated
+  
+  **Layer 2: Local Storage Encryption**
+  - Algorithm: AES-256-GCM
+  - Key: Master Key = Argon2id(Password, Salt)
+  - Purpose: Encryption at rest
+  - Protects: Private keys, message cache
+  
+  **Layer 1: E2E Transport Encryption**
+  - Algorithm: ChaCha20-Poly1305 + X25519
+  - Purpose: Zero-Knowledge server
+  - Forward secrecy (ephemeral keys)
+  
+  **Performance:** ~2-3ms per message (Layer 1+2)
+  **Note:** Layer 3 adds ~0.5ms if Privacy Mode enabled
+  **Compliance:** DSGVO Art. 32, BSI TR-02102-1
+end note
+
+note right of AuditLog
+  **Compliance:**
+  - DSGVO Art. 30 (Record of processing)
+  - DSGVO Art. 32 (Encryption at rest/transit)
+  - BSI IT-Grundschutz
+  - ISO 27001
+  - Full audit trail (7yr retention)
+end note
+
+note right of SIEM
+  **Active Defense:**
+  - Real-time monitoring
+  - Anomaly detection
+  - Automated response
+  - Forensic analysis
+  - Incident logging
+end note
+
+@enduml

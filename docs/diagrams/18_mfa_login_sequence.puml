@@ -1,0 +1,141 @@
+@startuml Multi-Factor Authentication Login Flow
+!theme plain
+
+title Multi-Factor Authentication (MFA) Login Flow (v3.1)
+
+actor User
+participant "WPF Client" as Client
+participant "API Gateway" as Gateway
+participant "Auth Service" as Auth
+database "PostgreSQL" as DB
+participant "YubiKey\n(optional)" as YubiKey
+
+== Phase 1: Password Authentication ==
+
+User -> Client: Enter Username + Password
+Client -> Gateway: POST /api/auth/login\n{username, password}
+Gateway -> Auth: Forward Login Request
+Auth -> DB: SELECT * FROM users\nWHERE username = ?
+
+alt User Not Found
+    Auth --> Client: 401 Unauthorized
+else User Found
+    Auth -> Auth: Verify Password Hash
+    
+    alt Invalid Password
+        Auth --> Client: 401 Unauthorized
+    else Valid Password
+        Auth -> DB: SELECT mfa_enabled FROM users
+        
+        alt MFA Disabled
+            Auth -> Auth: Generate JWT Token
+            Auth --> Client: 200 OK\n{token, masterKeySalt}
+            Client -> Client: MasterKey = Argon2id(Password, Salt)
+            Client -> Client: Unlock Local Storage
+        else MFA Enabled
+            Auth -> DB: SELECT * FROM mfa_methods\nWHERE user_id = ? AND is_primary = TRUE
+            Auth --> Client: 200 OK (MFA Required)\n{availableMethods: [{type, name}, ...]}
+        end
+    end
+end
+
+== Phase 2: MFA Authentication ==
+
+Client -> User: Display MFA Method Selection\n• TOTP (Authenticator App)\n• YubiKey\n• Recovery Code
+
+alt Option A: TOTP Selected
+    User -> Client: Select "Authenticator App"
+    Client -> User: Show 6-Digit Code Input
+    User -> User: Open Authenticator App\n(Google Authenticator, Authy)
+    User -> Client: Enter 6-Digit Code (e.g., 123456)
+    
+    Client -> Gateway: POST /api/auth/mfa/verify\n{methodId, code: "123456"}
+    Gateway -> Auth: Forward MFA Request
+    Auth -> DB: SELECT totp_secret FROM mfa_methods\nWHERE id = methodId
+    Auth -> Auth: ValidateTOTP(code, secret)\nTime Window: ±30s
+    
+    alt TOTP Valid
+        Auth -> DB: UPDATE mfa_methods\nSET last_used_at = NOW()
+        Auth -> Auth: Generate JWT Token
+        Auth --> Client: 200 OK {token, masterKeySalt}
+        Client -> Client: MasterKey = Argon2id(Password, Salt)
+    else TOTP Invalid
+        Auth --> Client: 401 Unauthorized\n"Invalid MFA Code"
+    end
+
+else Option B: YubiKey Selected
+    User -> Client: Select "YubiKey"
+    Client -> User: "Please insert YubiKey and touch when it blinks"
+    User -> YubiKey: Insert YubiKey (USB/NFC)
+    
+    Client -> YubiKey: Challenge-Response Request\nchallenge = "master-key-challenge-v1"
+    YubiKey -> YubiKey: Calculate HMAC-SHA1
+    YubiKey --> User: LED blinks (Touch Required)
+    User -> YubiKey: Touch YubiKey
+    YubiKey --> Client: HMAC-SHA1 Response (20 bytes)
+    
+    Client -> Gateway: POST /api/auth/mfa/verify\n{methodId, yubiKeyResponse}
+    Gateway -> Auth: Forward MFA Request
+    Auth -> DB: SELECT yubikey_public_id\nFROM mfa_methods WHERE id = methodId
+    Auth -> Auth: Validate YubiKey Serial Number
+    
+    alt YubiKey Valid
+        Auth -> DB: UPDATE mfa_methods\nSET last_used_at = NOW()
+        Auth -> Auth: Generate JWT Token
+        Auth --> Client: 200 OK {token, masterKeySalt}
+        
+        note over Client
+          **Master Key Derivation with YubiKey:**
+          passwordKey = Argon2id(password, salt)
+          tokenKey = yubiKeyResponse
+          masterKey = HKDF(
+              key: CONCAT(passwordKey, tokenKey),
+              info: "master-key-final",
+              length: 32
+          )
+        end note
+        
+        Client -> Client: Derive Master Key with YubiKey Response
+    else YubiKey Invalid
+        Auth --> Client: 401 Unauthorized
+    end
+
+else Option C: Recovery Code Selected
+    User -> Client: Select "Recovery Code"
+    Client -> User: "Enter 16-character Recovery Code"
+    User -> Client: Enter Code (e.g., "ABCD-1234-EFGH-5678")
+    
+    Client -> Gateway: POST /api/auth/mfa/verify\n{methodType: "recovery", code}
+    Gateway -> Auth: Forward Recovery Code
+    Auth -> DB: SELECT code_hash FROM recovery_codes\nWHERE user_id = ? AND used = FALSE
+    Auth -> Auth: Argon2id(inputCode, salt)\nCompare with stored hashes
+    
+    alt Recovery Code Valid
+        Auth -> DB: UPDATE recovery_codes\nSET used = TRUE, used_at = NOW()
+        Auth -> DB: INSERT INTO audit_log\n{action: "RECOVERY_CODE_USED", ...}
+        Auth -> Auth: Generate JWT Token
+        Auth --> Client: 200 OK {token, masterKeySalt, warning: "Recovery Code Used"}
+        Client -> User: ⚠️ Warning: Recovery Code used!\nPlease configure new MFA method
+        Client -> Client: MasterKey = Argon2id(Password, Salt)
+    else Recovery Code Invalid
+        Auth --> Client: 401 Unauthorized
+    end
+end
+
+== Phase 3: Session Established ==
+
+Client -> Client: Store JWT Token (Secure)
+Client -> Client: Decrypt Private Keys with Master Key
+Client -> Client: Unlock Local Storage (SQLite)
+Client -> User: Show Main Chat UI
+
+note over User, DB
+  **Security Notes:**
+  - Master Key exists ONLY in RAM during session
+  - YubiKey secret NEVER leaves the device
+  - Recovery Codes are one-time use
+  - All MFA events are audit logged
+  - Rate limiting: Max 5 attempts per 15 minutes
+end note
+
+@enduml

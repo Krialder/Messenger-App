@@ -1,0 +1,156 @@
+@startuml DSGVO Data Deletion
+!theme plain
+
+title DSGVO-compliant Account Deletion (30-day grace period) - v3.0
+
+actor User
+participant "UI" as UI
+participant "API\nGateway" as Gateway
+participant "User\nService" as UserSvc
+participant "Message\nService" as MsgSvc
+participant "Key\nService" as KeySvc
+participant "Database" as DB
+participant "Email\nService" as EmailSvc
+
+User -> UI : Delete Account
+activate UI
+
+UI -> User : Request Password\nConfirmation
+activate User
+User --> UI : Enter Password
+deactivate User
+
+UI -> Gateway : DELETE\n/users/{id}
+activate Gateway
+
+Gateway -> UserSvc : Validate Password
+activate UserSvc
+
+UserSvc -> DB : Verify Password\nHash
+activate DB
+DB --> UserSvc : Password Valid
+deactivate DB
+
+UserSvc -> DB : Start 30-day\ngrace period
+activate DB
+DB --> UserSvc : Account marked\nfor deletion
+deactivate DB
+
+UserSvc -> EmailSvc : Send\nConfirmation Email
+activate EmailSvc
+EmailSvc --> User : Email: Account\nwill be deleted\nin 30 days
+deactivate EmailSvc
+
+UserSvc --> Gateway : 202 Accepted
+deactivate UserSvc
+Gateway --> UI : Deletion\nScheduled
+deactivate Gateway
+
+UI --> User : Account deactivated\n(Can be restored\nwithin 30 days)
+deactivate UI
+
+...30 days pass...
+
+note over UserSvc
+  **Scheduled Task runs daily**
+  Checks for accounts with
+  deletion_date = today
+end note
+
+group Permanent Deletion Process [After 30 days]
+    UserSvc -> MsgSvc : Delete all\nmessages
+    activate MsgSvc
+    MsgSvc -> DB : DELETE messages\nWHERE sender_id\nOR recipient_id
+    activate DB
+    DB --> MsgSvc : Messages\ndeleted
+    deactivate DB
+    deactivate MsgSvc
+    
+    UserSvc -> KeySvc : Delete all keys
+    activate KeySvc
+    KeySvc -> DB : DELETE public_keys\nWHERE user_id
+    activate DB
+    DB --> KeySvc : Public keys\ndeleted
+    deactivate DB
+    note right of KeySvc
+      **v3.0 Note:**
+      Private keys stored locally
+      on client (encrypted with Master Key).
+      Server only has public keys.
+    end note
+    deactivate KeySvc
+    
+    UserSvc -> DB : DELETE\nuser_profiles
+    activate DB
+    DB --> UserSvc : Profile deleted
+    deactivate DB
+    
+    UserSvc -> DB : DELETE\ncontacts
+    activate DB
+    DB --> UserSvc : Contacts\ndeleted
+    deactivate DB
+    
+    UserSvc -> DB : DELETE\nrefresh_tokens
+    activate DB
+    DB --> UserSvc : Tokens deleted
+    deactivate DB
+    
+    UserSvc -> DB : DELETE users\n(including\nmaster_key_salt)
+    activate DB
+    note right of DB
+      **v3.0 Schema:**
+      Deletes user record including:
+      - username
+      - email
+      - password_hash
+      - master_key_salt
+      
+      ? No crypto_profiles table anymore
+    end note
+    DB --> UserSvc : User deleted
+    deactivate DB
+    
+    UserSvc -> DB : Overwrite data\n(3x for DSGVO)
+    activate DB
+    note right of DB
+      **Secure Deletion:**
+      1. Zero fill
+      2. Random fill
+      3. Zero fill
+      
+      Meets DSGVO "Right to Erasure"
+      (Art. 17 GDPR)
+    end note
+    DB --> UserSvc : Data permanently\nerased
+    deactivate DB
+    
+    UserSvc -> EmailSvc : Send Final\nConfirmation
+    activate EmailSvc
+    EmailSvc --> User : Email: Account\npermanently\ndeleted
+    deactivate EmailSvc
+    
+    UserSvc -> DB : Log Audit\nEvent
+    activate DB
+    note right of DB
+      audit_logs entry:
+      - action: 'user_deleted'
+      - is_dsgvo_relevant: true
+      - dsgvo_category: 'data_deletion'
+      - retention: 7 years
+    end note
+    DB --> UserSvc : Logged
+    deactivate DB
+end
+
+note over User, DB
+  **Client-side Data:**
+  User must manually delete local cache:
+  - Encrypted messages (SQLite)
+  - Encrypted private keys
+  - Local settings
+  
+  Without Master Key (password),
+  this data is unreadable anyway.
+end note
+
+@enduml

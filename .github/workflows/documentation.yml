@@ -1,0 +1,96 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/documentation.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+
+jobs:
+  validate-diagrams:
+    runs-on: ubuntu-latest
+    name: Validate PlantUML Diagrams
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      
+      - name: Download PlantUML
+        run: |
+          wget https://github.com/plantuml/plantuml/releases/download/v1.2023.13/plantuml-1.2023.13.jar
+          mv plantuml-1.2023.13.jar plantuml.jar
+      
+      - name: Validate PlantUML files
+        run: |
+          echo "Validating PlantUML diagrams..."
+          for file in docs/diagrams/*.puml; do
+            echo "Checking $file..."
+            java -jar plantuml.jar -checkonly "$file" || exit 1
+          done
+          echo "All PlantUML diagrams are valid!"
+      
+      - name: Generate PNG diagrams
+        run: |
+          mkdir -p docs/diagrams/PNG
+          for file in docs/diagrams/*.puml; do
+            echo "Rendering $file..."
+            java -jar plantuml.jar -tpng "$file" -o PNG
+          done
+      
+      - name: Generate SVG diagrams
+        run: |
+          mkdir -p docs/diagrams/SVG
+          for file in docs/diagrams/*.puml; do
+            echo "Rendering $file to SVG..."
+            java -jar plantuml.jar -tsvg "$file" -o SVG
+          done
+      
+      - name: Upload diagram artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagrams
+          path: |
+            docs/diagrams/PNG/
+            docs/diagrams/SVG/
+          retention-days: 30
+
+  check-links:
+    runs-on: ubuntu-latest
+    name: Check Documentation Links
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check Markdown links
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: 'yes'
+          use-verbose-mode: 'yes'
+          config-file: '.github/markdown-link-check-config.json'
+
+  lint-markdown:
+    runs-on: ubuntu-latest
+    name: Lint Markdown Files
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Lint Markdown
+        uses: nosborn/github-action-markdown-cli@v3.3.0
+        with:
+          files: .
+          config_file: .markdownlint.json
+          ignore_files: node_modules/

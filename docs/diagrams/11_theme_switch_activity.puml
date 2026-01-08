@@ -1,0 +1,57 @@
+@startuml Theme Switch Activity
+!theme plain
+
+title Activity Diagram - Theme Switch
+
+start
+
+:User opens Settings;
+
+:Click "Themes" menu;
+
+:System displays available themes:
+* Dark Mode (Default)
+* Midnight Mode
+* Light Mode;
+
+:User selects desired theme;
+
+:System loads Resource Dictionary
+for selected theme;
+
+note right
+    **WPF Resource Dictionary**
+    - Colors
+    - Styles
+    - Control Templates
+    - Brushes
+    - Animations
+end note
+
+:Apply theme to UI
+(No restart needed);
+
+fork
+    :Update window styles;
+fork again
+    :Update control styles;
+fork again
+    :Update color scheme;
+end fork
+
+:Save preference to database;
+
+:Display success message;
+
+stop
+
+note left
+    **Real-time Theme Switch:**
+    - Uses WPF merged dictionaries
+    - Dynamic resource resolution
+    - No application restart
+    - Smooth animations
+    - Preference persisted
+end note
+
+@enduml

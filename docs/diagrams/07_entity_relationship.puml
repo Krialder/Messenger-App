@@ -1,0 +1,270 @@
+@startuml Entity Relationship Diagram
+!theme plain
+skinparam linetype ortho
+
+title Entity Relationship Diagram (v3.1)
+
+' Entities
+entity "USER" as USER {
+  * id : UUID <<PK>>
+  ==
+  * username : VARCHAR(50) <<UK>>
+  * email : VARCHAR(255) <<UK>>
+  * password_hash : TEXT
+  * master_key_salt : BYTEA(32)
+  * mfa_enabled : BOOLEAN
+  * created_at : TIMESTAMP
+  last_login_at : TIMESTAMP
+  * is_active : BOOLEAN
+  * account_status : VARCHAR(20)
+  email_verified : BOOLEAN
+  deleted_at : TIMESTAMP
+}
+
+entity "USER_PROFILE" as PROFILE {
+  * user_id : UUID <<PK,FK>>
+  ==
+  * display_name : VARCHAR(100)
+  status_message : VARCHAR(500)
+  profile_picture_hash : BYTEA
+  theme_preference : VARCHAR(50)
+  language : VARCHAR(10)
+  notification_settings : JSONB
+  privacy_settings : JSONB
+  updated_at : TIMESTAMP
+}
+
+entity "MESSAGE" as MESSAGE {
+  * id : UUID <<PK>>
+  ==
+  * sender_id : UUID <<FK>>
+  * recipient_id : UUID <<FK>>
+  * encrypted_content : BYTEA
+  * ephemeral_public_key : BYTEA
+  * nonce : BYTEA(12)
+  * tag : BYTEA(16)
+  * timestamp : TIMESTAMP
+  * status : VARCHAR(20)
+  delivered_at : TIMESTAMP
+  read_at : TIMESTAMP
+  is_deleted : BOOLEAN
+  deleted_at : TIMESTAMP
+  message_type : VARCHAR(20)
+  reply_to_message_id : UUID
+}
+
+entity "PUBLIC_KEY" as KEY {
+  * id : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  * public_key_bytes : BYTEA
+  * key_type : VARCHAR(20)
+  * created_at : TIMESTAMP
+  expires_at : TIMESTAMP
+  * is_active : BOOLEAN
+  revoked_at : TIMESTAMP
+  revocation_reason : VARCHAR(200)
+}
+
+entity "CONTACT" as CONTACT {
+  * id : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  * contact_user_id : UUID <<FK>>
+  nickname : VARCHAR(100)
+  * added_at : TIMESTAMP
+  is_blocked : BOOLEAN
+  is_favorite : BOOLEAN
+  custom_notification : BOOLEAN
+  last_message_at : TIMESTAMP
+}
+
+entity "REFRESH_TOKEN" as TOKEN {
+  * id : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  * token_hash : TEXT <<UK>>
+  * created_at : TIMESTAMP
+  * expires_at : TIMESTAMP
+  is_revoked : BOOLEAN
+  revoked_at : TIMESTAMP
+  device_info : JSONB
+  last_used_at : TIMESTAMP
+}
+
+entity "AUDIT_LOG" as AUDIT {
+  * id : UUID <<PK>>
+  ==
+  user_id : UUID <<FK>>
+  * action : VARCHAR(100)
+  details : JSONB
+  ip_address : INET
+  user_agent : TEXT
+  * timestamp : TIMESTAMP
+  severity : VARCHAR(20)
+  is_dsgvo_relevant : BOOLEAN
+  dsgvo_category : VARCHAR(50)
+}
+
+entity "MESSAGE_STATUS_HISTORY" as STATUS {
+  * id : UUID <<PK>>
+  ==
+  * message_id : UUID <<FK>>
+  * status : VARCHAR(20)
+  * timestamp : TIMESTAMP
+}
+
+entity "KEY_ROTATION_LOG" as ROTATION {
+  * id : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  old_key_id : UUID <<FK>>
+  * new_key_id : UUID <<FK>>
+  * rotated_at : TIMESTAMP
+  rotation_reason : VARCHAR(100)
+  rotation_successful : BOOLEAN
+}
+
+entity "MFA_METHOD" as MFA {
+  * id : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  * method_type : VARCHAR(20)
+  totp_secret : TEXT
+  yubikey_public_id : TEXT
+  yubikey_credential_id : BYTEA
+  fido2_credential_id : BYTEA
+  fido2_public_key : BYTEA
+  fido2_sign_count : INTEGER
+  fido2_aaguid : BYTEA
+  is_primary : BOOLEAN
+  is_backup : BOOLEAN
+  friendly_name : VARCHAR(100)
+  * created_at : TIMESTAMP
+  last_used_at : TIMESTAMP
+}
+
+entity "RECOVERY_CODE" as RECOVERY {
+  * id : UUID <<PK>>
+  ==
+  * user_id : UUID <<FK>>
+  * code_hash : TEXT
+  * used : BOOLEAN
+  used_at : TIMESTAMP
+  * created_at : TIMESTAMP
+}
+
+' Relationships
+USER ||--|| PROFILE
+USER ||--o{ MFA
+USER ||--o{ RECOVERY
+USER ||--o{ KEY
+USER ||--o{ CONTACT
+USER ||--o{ TOKEN
+USER ||--o{ AUDIT
+USER ||--o{ MESSAGE
+USER ||--o{ MESSAGE
+
+MESSAGE ||--o{ STATUS
+MESSAGE }o--|| MESSAGE
+
+KEY ||--o{ ROTATION
+KEY ||--o{ ROTATION
+
+USER ||--o{ ROTATION
+
+' Notes
+note right of USER
+  **Account Status:**
+  - active, suspended
+  - deleted_pending, deleted
+  
+  **Master Key Salt (v3.0):**
+  - 32 bytes unique per user
+  - For Master Key derivation
+  - Master Key = Argon2id(Password, Salt)
+  - Private Keys encrypted locally
+  
+  **Multi-Factor Auth (v3.1):**
+  - mfa_enabled = global MFA status
+  - Multiple methods supported
+end note
+
+note right of MFA
+  **Method Types:**
+  - totp: Authenticator App
+  - yubikey: Hardware Token
+  - fido2: WebAuthn
+  
+  **Primary vs Backup:**
+  - One method is primary
+  - Multiple backups possible
+  
+  **YubiKey for Master Key:**
+  - Challenge-Response mode
+  - Master Key = HKDF(
+      Argon2id(pwd, salt),
+      YubiKey Response
+    )
+end note
+
+note right of RECOVERY
+  **Emergency Access:**
+  - 10 codes generated at
+    MFA activation
+  - One-time use only
+  - Argon2id hashed
+  - After use: Setup new MFA
+end note
+
+note right of MESSAGE
+  **Single Layer Encryption:**
+  - Layer 1: E2E Transport
+    (ChaCha20-Poly1305)
+  - Server stores only
+    Layer 1 ciphertext
+  
+  **Forward Secrecy:**
+  - Ephemeral keys per message
+  - Keys deleted after decryption
+  
+  **Local Storage (Client):**
+  - Layer 2: AES-256-GCM
+  - Cached in encrypted SQLite
+end note
+
+note right of KEY
+  **Key Types:**
+  - x25519_e2e (E2E encryption)
+  - ed25519_signing (signatures)
+  - kyber_pq (future PQC)
+  
+  **Storage:**
+  - Public keys on server
+  - Private keys encrypted locally
+    with Master Key (AES-256-GCM)
+end note
+
+note bottom of AUDIT
+  **DSGVO Compliance:**
+  - 7 years retention for
+    DSGVO-relevant logs
+  - 90 days for normal logs
+end note
+
+note as N1
+  **v3.1 Changes (MFA):**
+  - ADDED: mfa_methods table
+  - ADDED: recovery_codes table
+  - REMOVED: users.two_factor_secret
+  - REMOVED: users.two_factor_enabled
+  - REMOVED: users.backup_codes
+  - Multi-MFA support (TOTP, YubiKey, FIDO2)
+  
+  **v3.0 Changes:**
+  - REMOVED: crypto_profiles table
+  - ADDED: users.master_key_salt
+  - Layer 2 = Local Storage Encryption
+end note
+
+@enduml

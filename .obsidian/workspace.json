@@ -1,0 +1,234 @@
+{
+  "main": {
+    "id": "d72b8bd367ccd7b0",
+    "type": "split",
+    "children": [
+      {
+        "id": "1e5659b71d23538e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "97c2ab5ae3af7be9",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "docs/04_USE_CASES.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "04_USE_CASES"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "67ef90b091da46bd",
+    "type": "split",
+    "children": [
+      {
+        "id": "fda3fcc234093b65",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e9a93634bd03ec0f",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "9fe072e04e907562",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "9324461d8f3d3a5b",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "12c7383fb54d224e",
+    "type": "split",
+    "children": [
+      {
+        "id": "ffa8f43ddf862ddc",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "55631856e032918e",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "README.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for README"
+            }
+          },
+          {
+            "id": "24c52e8afecd3391",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "README.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from README"
+            }
+          },
+          {
+            "id": "4117ea4a35b77be4",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "2a3878f88478f6ea",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "2654804ce0022f17",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "README.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of README"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "97c2ab5ae3af7be9",
+  "lastOpenFiles": [
+    "docs/05_DATA_MODEL.md",
+    "docs/07_IMPLEMENTATION_PLAN.md",
+    "README.md",
+    "CONTRIBUTING.md",
+    "docs/08_TESTING.md",
+    "docs/03_CRYPTOGRAPHY.md",
+    "docs/02_ARCHITECTURE.md",
+    "docs/diagrams/DIAGRAM_REFERENCE.md",
+    "ProjectProposal/01_PROJECT_PROPOSAL.md",
+    "docs/diagrams/01_system_architecture.puml~RF3b8f016.TMP",
+    "docs/diagrams/rk4myssl.haq~",
+    "docs/diagrams/tt24vkke.s3c~",
+    "docs/diagrams/g23cc1xd.xo0~",
+    "scripts/u4aefhit.4nz~",
+    "CONTRIBUTING.md~RF3b8e20c.TMP",
+    "mxox1psb.4io~",
+    "335hqu12.uhc~",
+    "dzn25qlq.gqt~",
+    "docs/vzl12y0d.dtw~",
+    "docs/04_USE_CASES.md",
+    "scripts/README.md",
+    "2025-12-19.md",
+    "docs/PSEUDOCODE_CONVERSION_SUMMARY.md",
+    "docs/DOCUMENTATION_CHANGELOG.md",
+    "docs/diagrams/PNG/16_2fa_enable_sequence.png",
+    "docs/diagrams/PNG/15_docker_deployment.png",
+    "docs/diagrams/PNG/14_defense_in_depth.png",
+    "docs/diagrams/PNG/13_forward_secrecy_flow.png",
+    "docs/diagrams/PNG/12_client_component_architecture.png",
+    "docs/diagrams/PNG/11_theme_switch_activity.png",
+    "docs/diagrams/PNG/17_layer3_display_encryption.png",
+    "docs/diagrams/PNG/10_key_lifecycle_state.png",
+    "docs/diagrams/PNG/09_account_status_state.png",
+    "docs/diagrams/PNG/08_message_status_state.png",
+    "docs/LAYER3_INTEGRATION_SUMMARY.md",
+    "07_IMPLEMENTATION_PLAN_ARCHIVE.md",
+    "docs/diagrams/09_account_status_state.md",
+    "docs/diagrams/16_2fa_enable_sequence.md",
+    "docs/diagrams/14_defense_in_depth.md",
+    "docs/diagrams/02_encryption_layers.md",
+    "docs/diagrams/10_key_lifecycle_state.md",
+    "diagrams/02_encryption_layers..md",
+    "docs/diagrams/15_docker_deployment.md",
+    "docs/diagrams/07_entity_relationship.md",
+    "docs/diagrams/01_system_architecture.md"
+  ]
+}

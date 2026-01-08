@@ -1,0 +1,126 @@
+﻿@startuml Send Message Sequence
+!theme plain
+
+title Alice sends Message to Bob - Complete Flow (v3.0)
+
+actor Alice
+participant "Alice's\nClient" as ClientA
+participant "API\nGateway" as Gateway
+participant "Auth\nService" as AuthSvc
+participant "Message\nService" as MsgSvc
+participant "Key\nService" as KeySvc
+participant "RabbitMQ" as Queue
+participant "Notification\nService" as NotifSvc
+participant "Bob's\nClient" as ClientB
+actor Bob
+
+Alice -> ClientA : Types\n"Hallo Bob"
+activate ClientA
+
+ClientA -> KeySvc : GET Bob's\nPublic Key
+activate KeySvc
+KeySvc --> ClientA : Public Key
+deactivate KeySvc
+
+ClientA -> ClientA : Layer 1 Encrypt\n(ChaCha20-Poly1305)\nGenerate Ephemeral Key
+note right
+  **Layer 1 only for transport**
+  Layer 2 removed from message flow
+  (now only for local storage)
+end note
+
+ClientA -> Gateway : POST /api/messages\n(Encrypted Payload)
+activate Gateway
+
+Gateway -> Gateway : Validate JWT
+Gateway -> AuthSvc : Verify Token
+activate AuthSvc
+AuthSvc --> Gateway : Token Valid
+deactivate AuthSvc
+
+Gateway -> MsgSvc : Forward Request
+activate MsgSvc
+
+MsgSvc -> MsgSvc : Store Encrypted Message\n(E2E Layer 1 only)
+MsgSvc -> Queue : Publish\nMessageSentEvent
+activate Queue
+Queue --> MsgSvc : Acknowledged
+deactivate Queue
+
+MsgSvc --> Gateway : 201 Created
+deactivate MsgSvc
+Gateway --> ClientA : Success
+deactivate Gateway
+
+ClientA -> ClientA : Layer 2: Cache locally\nEncrypt with Master Key\n(AES-256-GCM)\nStore in SQLite
+note right
+  **Layer 2 Local Storage:**
+  - Master Key = Argon2id(Password, Salt)
+  - AES-256-GCM encryption
+  - Local cache only
+  - ~0.5ms
+end note
+
+ClientA --> Alice : Message Sent ✓
+deactivate ClientA
+
+Queue -> NotifSvc : MessageSentEvent
+activate NotifSvc
+NotifSvc -> NotifSvc : Check Bob\nOnline?
+
+NotifSvc -> ClientB : SignalR Push\nOnMessageReceived
+activate ClientB
+ClientB --> Bob : Show\nNotification
+deactivate NotifSvc
+
+ClientB -> MsgSvc : GET /api/messages
+activate MsgSvc
+MsgSvc --> ClientB : Encrypted Message\n(Layer 1 E2E)
+deactivate MsgSvc
+
+ClientB -> ClientB : Layer 1 Decrypt\n(ChaCha20-Poly1305)\nDelete Ephemeral Key\n(Forward Secrecy)
+
+ClientB -> ClientB : Layer 2: Cache locally\nEncrypt with Master Key\nStore in SQLite
+
+ClientB -> ClientB : Layer 3 Encrypt\n(Device Key)\nDisplay: 🔒 ████████
+note right
+  **Layer 3 Optional:**
+  - Device Key (DPAPI + PIN)
+  - AES-256-GCM encryption
+  - Anti-shoulder-surfing
+end note
+
+ClientB --> Bob : Show Obfuscated\nMessage
+
+Bob -> ClientB : Click\n[👁 Anzeigen]
+ClientB -> ClientB : Validate PIN
+ClientB -> ClientB : Layer 3\nDecrypt
+ClientB --> Bob : Display\n"Hallo Bob"\n(5 sec timeout)
+
+ClientB -> ClientB : Auto Re-encrypt\nDisplay: 🔒 ████████
+
+ClientB -> MsgSvc : PATCH\n/messages/{id}/read
+activate MsgSvc
+MsgSvc -> Queue : Publish\nMessageReadEvent
+activate Queue
+Queue --> MsgSvc : Acknowledged
+deactivate Queue
+deactivate MsgSvc
+
+Queue -> NotifSvc : MessageReadEvent
+activate NotifSvc
+NotifSvc -> ClientA : SignalR Push\nRead Receipt
+activate ClientA
+ClientA --> Alice : Message\nRead ✓✓
+deactivate ClientA
+deactivate NotifSvc
+deactivate ClientB
+
+note over ClientA, ClientB
+  **Performance (v3.0):**
+  - Message send: ~2-3ms (7x faster than v2.x)
+  - Layer 1 only for transport
+  - Layer 2 only for local caching
+end note
+
+@enduml
