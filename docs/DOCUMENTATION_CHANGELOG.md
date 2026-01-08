@@ -39,10 +39,6 @@
   - Version 3.4 erwähnt
 
 ### Entfernte unnötige Aspekte
-- ❌ Post-Quantum Cryptography (PQC) Details
-- ❌ Zu detaillierte Compliance-Referenzen
-- ❌ Marketing-Sprache ("battle-tested", "cutting-edge")
-- ❌ Übermäßige theoretische Erklärungen
 
 ### Neue Dokumentation
 - 📄 **09_API_REFERENCE.md** (komplett neu)
