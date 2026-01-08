@@ -20,7 +20,7 @@ Eine **in Entwicklung befindliche** Ende-zu-Ende verschlüsselte Messenger-Anwen
 
 **Overall**: 2/11 Services implementiert (18%)
 
-📖 **Detaillierter Status**: [FOUNDATION_STATUS.md](FOUNDATION_STATUS.md) | [WORKSPACE_GUIDE.md](WORKSPACE_GUIDE.md)
+📖 **Detaillierter Status**: [DOCUMENTATION_CHANGELOG.md](docs/DOCUMENTATION_CHANGELOG.md) | [WORKSPACE_GUIDE.md](WORKSPACE_GUIDE.md)
 
 ---
 
@@ -254,7 +254,7 @@ curl http://localhost:5001/health
 
 📋 **[Dokumentations-Index](docs/00_INDEX.md)** - Zentrale Übersicht  
 📋 **[Workspace Guide](WORKSPACE_GUIDE.md)** - Vollständige Struktur-Übersicht  
-📋 **[Foundation Status](FOUNDATION_STATUS.md)** - Implementierungs-Details
+📋 **[Documentation Changelog](docs/DOCUMENTATION_CHANGELOG.md)** - Implementierungs-Details & Versionshistorie
 
 ### Hauptdokumente
 
@@ -428,7 +428,6 @@ Interessiert? Siehe [CONTRIBUTING.md](CONTRIBUTING.md)
 - `src/Backend/AuthService/appsettings.Development.json`
 - `src/Shared/MessengerContracts/DTOs/AuthDtos.cs`
 - `src/Shared/MessengerContracts/Interfaces/IServices.cs`
-- `FOUNDATION_STATUS.md`
 - `src/Backend/AuthService/README.md`
 
 **🔧 Aktualisiert**:
