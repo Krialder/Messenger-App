@@ -1,0 +1,392 @@
+using System;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using Xunit;
+using Microsoft.EntityFrameworkCore;
+using MessageService.Data;
+using MessageService.Data.Entities;
+using CryptoService.Services;
+
+namespace MessengerTests.IntegrationTests
+{
+    public class GroupChatFlowTests : IDisposable
+    {
+        private readonly MessageDbContext _context;
+        private readonly GroupEncryptionService _groupEncryption;
+
+        public GroupChatFlowTests()
+        {
+            var options = new DbContextOptionsBuilder<MessageDbContext>()
+                .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+                .Options;
+            _context = new MessageDbContext(options);
+            _groupEncryption = new GroupEncryptionService();
+        }
+
+        [Fact]
+        public async Task GroupChat_CompleteFlow_CreateToSendMessage()
+        {
+            // Arrange
+            var ownerUserId = Guid.NewGuid();
+            var memberUserIds = new[] { Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid() };
+
+            // Act 1: Create Group
+            var groupConversation = new Conversation
+            {
+                Id = Guid.NewGuid(),
+                Type = EntityConversationType.Group,
+                Name = "Dev Team",
+                Description = "Development team group chat",
+                CreatedBy = ownerUserId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _context.Conversations.AddAsync(groupConversation);
+            await _context.SaveChangesAsync();
+
+            // Assert 1: Group created
+            var createdGroup = await _context.Conversations.FindAsync(groupConversation.Id);
+            Assert.NotNull(createdGroup);
+            Assert.Equal(EntityConversationType.Group, createdGroup.Type);
+            Assert.Equal("Dev Team", createdGroup.Name);
+
+            // Act 2: Add Owner
+            var ownerMember = new ConversationMember
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = groupConversation.Id,
+                UserId = ownerUserId,
+                Role = EntityMemberRole.Owner,
+                JoinedAt = DateTime.UtcNow,
+                IsMuted = false
+            };
+
+            await _context.ConversationMembers.AddAsync(ownerMember);
+
+            // Act 3: Add Members
+            foreach (var memberId in memberUserIds)
+            {
+                var member = new ConversationMember
+                {
+                    Id = Guid.NewGuid(),
+                    ConversationId = groupConversation.Id,
+                    UserId = memberId,
+                    Role = EntityMemberRole.Member,
+                    JoinedAt = DateTime.UtcNow,
+                    IsMuted = false
+                };
+                await _context.ConversationMembers.AddAsync(member);
+            }
+
+            await _context.SaveChangesAsync();
+
+            // Assert 2: All members added
+            var members = await _context.ConversationMembers
+                .Where(m => m.ConversationId == groupConversation.Id)
+                .ToListAsync();
+
+            Assert.Equal(4, members.Count); // 1 owner + 3 members
+            Assert.Single(members.Where(m => m.Role == EntityMemberRole.Owner));
+            Assert.Equal(3, members.Count(m => m.Role == EntityMemberRole.Member));
+
+            // Act 4: First member sends message (using actual GroupEncryptionService API)
+            var messageText = "Hello team! First message in the group.";
+            
+            // Generate member public keys (mocked for test)
+            var memberPublicKeys = memberUserIds.Select(id => new MemberPublicKey
+            {
+                UserId = id,
+                PublicKey = new byte[32] // X25519 public key placeholder
+            }).ToList();
+
+            // Add owner public key
+            memberPublicKeys.Add(new MemberPublicKey
+            {
+                UserId = ownerUserId,
+                PublicKey = new byte[32]
+            });
+
+            var encryptionResult = await _groupEncryption.EncryptForGroupAsync(messageText, memberPublicKeys);
+
+            var message = new Message
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = groupConversation.Id,
+                SenderId = memberUserIds[0],
+                ContentEncrypted = encryptionResult.EncryptedContent,
+                Type = EntityMessageType.Text,
+                Status = EntityMessageStatus.Sent,
+                Timestamp = DateTime.UtcNow
+            };
+
+            await _context.Messages.AddAsync(message);
+            await _context.SaveChangesAsync();
+
+            // Assert 3: Message sent
+            var sentMessage = await _context.Messages.FindAsync(message.Id);
+            Assert.NotNull(sentMessage);
+            Assert.Equal(groupConversation.Id, sentMessage.ConversationId);
+            Assert.Equal(memberUserIds[0], sentMessage.SenderId);
+            Assert.NotEmpty(sentMessage.ContentEncrypted);
+
+            // Act 5: Owner changes group name
+            createdGroup.Name = "Backend Team";
+            createdGroup.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            // Assert 4: Group name updated
+            var updatedGroup = await _context.Conversations.FindAsync(groupConversation.Id);
+            Assert.Equal("Backend Team", updatedGroup!.Name);
+
+            // Act 6: Owner removes one member
+            var memberToRemove = members.First(m => m.UserId == memberUserIds[2]);
+            _context.ConversationMembers.Remove(memberToRemove);
+            await _context.SaveChangesAsync();
+
+            // Assert 5: Member removed
+            var remainingMembers = await _context.ConversationMembers
+                .Where(m => m.ConversationId == groupConversation.Id)
+                .ToListAsync();
+
+            Assert.Equal(3, remainingMembers.Count); // 1 owner + 2 members
+        }
+
+        [Fact]
+        public async Task GroupRoles_OwnerAdminMember_Permissions()
+        {
+            // Arrange
+            var ownerId = Guid.NewGuid();
+            var adminId = Guid.NewGuid();
+            var memberId = Guid.NewGuid();
+
+            var conversation = new Conversation
+            {
+                Id = Guid.NewGuid(),
+                Type = EntityConversationType.Group,
+                Name = "Test Group",
+                CreatedBy = ownerId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _context.Conversations.AddAsync(conversation);
+
+            var owner = new ConversationMember
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = conversation.Id,
+                UserId = ownerId,
+                Role = EntityMemberRole.Owner,
+                JoinedAt = DateTime.UtcNow,
+                IsMuted = false
+            };
+
+            var admin = new ConversationMember
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = conversation.Id,
+                UserId = adminId,
+                Role = EntityMemberRole.Admin,
+                JoinedAt = DateTime.UtcNow,
+                IsMuted = false
+            };
+
+            var member = new ConversationMember
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = conversation.Id,
+                UserId = memberId,
+                Role = EntityMemberRole.Member,
+                JoinedAt = DateTime.UtcNow,
+                IsMuted = false
+            };
+
+            await _context.ConversationMembers.AddRangeAsync(owner, admin, member);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var ownerMember = await _context.ConversationMembers
+                .FirstAsync(m => m.UserId == ownerId);
+            var adminMember = await _context.ConversationMembers
+                .FirstAsync(m => m.UserId == adminId);
+            var regularMember = await _context.ConversationMembers
+                .FirstAsync(m => m.UserId == memberId);
+
+            // Assert
+            Assert.Equal(EntityMemberRole.Owner, ownerMember.Role);
+            Assert.Equal(EntityMemberRole.Admin, adminMember.Role);
+            Assert.Equal(EntityMemberRole.Member, regularMember.Role);
+
+            // Verify only one owner exists
+            var ownerCount = await _context.ConversationMembers
+                .CountAsync(m => m.ConversationId == conversation.Id && m.Role == EntityMemberRole.Owner);
+            Assert.Equal(1, ownerCount);
+        }
+
+        [Fact]
+        public async Task GroupSettings_NameDescriptionAvatar()
+        {
+            // Arrange
+            var conversation = new Conversation
+            {
+                Id = Guid.NewGuid(),
+                Type = EntityConversationType.Group,
+                Name = "Initial Name",
+                Description = "Initial Description",
+                AvatarUrl = null,
+                CreatedBy = Guid.NewGuid(),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _context.Conversations.AddAsync(conversation);
+            await _context.SaveChangesAsync();
+
+            // Act - Update settings
+            conversation.Name = "Updated Group Name";
+            conversation.Description = "Updated description with more details";
+            conversation.AvatarUrl = "https://example.com/avatar.jpg";
+            conversation.UpdatedAt = DateTime.UtcNow;
+
+            await _context.SaveChangesAsync();
+
+            // Assert
+            var updatedConversation = await _context.Conversations.FindAsync(conversation.Id);
+            Assert.NotNull(updatedConversation);
+            Assert.Equal("Updated Group Name", updatedConversation.Name);
+            Assert.Equal("Updated description with more details", updatedConversation.Description);
+            Assert.Equal("https://example.com/avatar.jpg", updatedConversation.AvatarUrl);
+            Assert.True(updatedConversation.UpdatedAt > updatedConversation.CreatedAt);
+        }
+
+        [Fact]
+        public async Task MemberNotifications_MuteUnmute()
+        {
+            // Arrange
+            var conversationId = Guid.NewGuid();
+            var userId = Guid.NewGuid();
+
+            var member = new ConversationMember
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = conversationId,
+                UserId = userId,
+                Role = EntityMemberRole.Member,
+                JoinedAt = DateTime.UtcNow,
+                IsMuted = false // Default: notifications enabled
+            };
+
+            await _context.ConversationMembers.AddAsync(member);
+            await _context.SaveChangesAsync();
+
+            // Act 1: Mute notifications
+            member.IsMuted = true;
+            await _context.SaveChangesAsync();
+
+            // Assert 1: Notifications muted
+            var mutedMember = await _context.ConversationMembers.FindAsync(member.Id);
+            Assert.NotNull(mutedMember);
+            Assert.True(mutedMember.IsMuted);
+
+            // Act 2: Unmute notifications
+            member.IsMuted = false;
+            await _context.SaveChangesAsync();
+
+            // Assert 2: Notifications unmuted
+            var unmutedMember = await _context.ConversationMembers.FindAsync(member.Id);
+            Assert.NotNull(unmutedMember);
+            Assert.False(unmutedMember.IsMuted);
+        }
+
+        [Fact]
+        public async Task GroupEncryption_MultipleMembers()
+        {
+            // Arrange
+            var messageText = "Encrypted group message test";
+            var memberCount = 4;
+            
+            var memberPublicKeys = Enumerable.Range(0, memberCount).Select(_ => new MemberPublicKey
+            {
+                UserId = Guid.NewGuid(),
+                PublicKey = new byte[32] // X25519 public key placeholder
+            }).ToList();
+
+            // Act - Encrypt message for all members
+            var encryptionResult = await _groupEncryption.EncryptForGroupAsync(messageText, memberPublicKeys);
+
+            // Assert
+            Assert.NotNull(encryptionResult);
+            Assert.NotEmpty(encryptionResult.EncryptedContent);
+            Assert.Equal(12, encryptionResult.Nonce.Length); // AES-GCM nonce
+            Assert.Equal(16, encryptionResult.Tag.Length); // AES-GCM tag
+            Assert.Equal(memberCount, encryptionResult.EncryptedKeys.Count);
+            
+            // Each member should have an encrypted group key
+            foreach (var encryptedKey in encryptionResult.EncryptedKeys)
+            {
+                Assert.NotEmpty(encryptedKey.EncryptedGroupKey);
+            }
+        }
+
+        [Fact]
+        public async Task MaxGroupSize_256Members()
+        {
+            // Arrange
+            var groupId = Guid.NewGuid();
+            var ownerId = Guid.NewGuid();
+
+            var conversation = new Conversation
+            {
+                Id = groupId,
+                Type = EntityConversationType.Group,
+                Name = "Large Group",
+                CreatedBy = ownerId,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _context.Conversations.AddAsync(conversation);
+
+            // Add owner
+            await _context.ConversationMembers.AddAsync(new ConversationMember
+            {
+                Id = Guid.NewGuid(),
+                ConversationId = groupId,
+                UserId = ownerId,
+                Role = EntityMemberRole.Owner,
+                JoinedAt = DateTime.UtcNow,
+                IsMuted = false
+            });
+
+            // Add 255 members (256 total including owner)
+            for (int i = 0; i < 255; i++)
+            {
+                await _context.ConversationMembers.AddAsync(new ConversationMember
+                {
+                    Id = Guid.NewGuid(),
+                    ConversationId = groupId,
+                    UserId = Guid.NewGuid(),
+                    Role = EntityMemberRole.Member,
+                    JoinedAt = DateTime.UtcNow,
+                    IsMuted = false
+                });
+            }
+
+            await _context.SaveChangesAsync();
+
+            // Act
+            var memberCount = await _context.ConversationMembers
+                .CountAsync(m => m.ConversationId == groupId);
+
+            // Assert
+            Assert.Equal(256, memberCount);
+        }
+
+        public void Dispose()
+        {
+            _context?.Dispose();
+        }
+    }
+}

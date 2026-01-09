@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using DtoPublicKeyDto = MessengerContracts.DTOs.PublicKeyDto;
 
 namespace KeyManagementService.Controllers;
 
@@ -39,7 +40,7 @@ public class KeyController : ControllerBase
     /// Get the active public key for a user.
     /// </summary>
     [HttpGet("public/{userId}")]
-    [ProducesResponseType(typeof(PublicKeyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(DtoPublicKeyDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetPublicKey(Guid userId)
     {
@@ -58,7 +59,7 @@ public class KeyController : ControllerBase
             });
         }
 
-        PublicKeyDto dto = new PublicKeyDto
+        DtoPublicKeyDto dto = new DtoPublicKeyDto
         {
             Id = key.Id,
             UserId = key.UserId,
@@ -74,7 +75,7 @@ public class KeyController : ControllerBase
     /// Rotate the current user's public key.
     /// </summary>
     [HttpPost("rotate")]
-    [ProducesResponseType(typeof(PublicKeyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(DtoPublicKeyDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> RotateKey([FromBody] RotateKeyRequest request)
     {
@@ -125,7 +126,7 @@ public class KeyController : ControllerBase
 
         _logger.LogInformation("User {UserId} rotated their public key to {KeyId}.", userId, newKey.Id);
 
-        PublicKeyDto dto = new PublicKeyDto
+        DtoPublicKeyDto dto = new DtoPublicKeyDto
         {
             Id = newKey.Id,
             UserId = newKey.UserId,
@@ -176,7 +177,7 @@ public class KeyController : ControllerBase
     /// Get key history for the current user.
     /// </summary>
     [HttpGet("history")]
-    [ProducesResponseType(typeof(List<PublicKeyDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(List<DtoPublicKeyDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetKeyHistory()
     {
         string? userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
@@ -191,7 +192,7 @@ public class KeyController : ControllerBase
             .OrderByDescending(k => k.CreatedAt)
             .ToListAsync();
 
-        List<PublicKeyDto> dtos = keys.Select(k => new PublicKeyDto
+        List<DtoPublicKeyDto> dtos = keys.Select(k => new DtoPublicKeyDto
         {
             Id = k.Id,
             UserId = k.UserId,

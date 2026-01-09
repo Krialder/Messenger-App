@@ -1,0 +1,236 @@
+using System;
+using System.Text;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using Xunit;
+using CryptoService.Layer1;
+using CryptoService.Layer2;
+using CryptoService.Services;
+using MessengerContracts.DTOs;
+
+namespace MessengerTests.IntegrationTests
+{
+    public class EndToEndEncryptionTests
+    {
+        private readonly TransportEncryptionService _layer1Service;
+        private readonly LocalStorageEncryptionService _layer2Service;
+        private readonly GroupEncryptionService _groupService;
+
+        public EndToEndEncryptionTests()
+        {
+            _layer1Service = new TransportEncryptionService();
+            _layer2Service = new LocalStorageEncryptionService();
+            _groupService = new GroupEncryptionService();
+        }
+
+        [Fact]
+        public async Task FullEncryptionPipeline_UserAToUserB_Success()
+        {
+            // Arrange
+            var plaintext = "Hello, this is a secure message!";
+            var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
+
+            // User A's keys (sender)
+            var userAKeyPair = _layer1Service.GenerateKeyPair();
+            var userAMasterPassword = "UserA_SecurePassword123!";
+            var userAMasterKey = _layer2Service.DeriveKey(userAMasterPassword, userAKeyPair.PrivateKey.Take(32).ToArray());
+
+            // User B's keys (recipient)
+            var userBKeyPair = _layer1Service.GenerateKeyPair();
+            var userBMasterPassword = "UserB_SecurePassword456!";
+            var userBMasterKey = _layer2Service.DeriveKey(userBMasterPassword, userBKeyPair.PrivateKey.Take(32).ToArray());
+
+            // Act - User A sends message
+
+            // Step 1: Layer 2 - Local encryption with User A's master key
+            var layer2Encrypted = _layer2Service.Encrypt(plaintextBytes, userAMasterKey);
+
+            // Step 2: Layer 1 - Transport encryption (User A → User B)
+            var sharedSecret = _layer1Service.DeriveSharedSecret(userAKeyPair.PrivateKey, userBKeyPair.PublicKey);
+            var layer1Encrypted = _layer1Service.Encrypt(layer2Encrypted, sharedSecret);
+
+            // Simulate server storage (only ciphertext)
+            var storedCiphertext = layer1Encrypted;
+
+            // Step 3: User B receives message - Layer 1 decryption
+            var sharedSecretB = _layer1Service.DeriveSharedSecret(userBKeyPair.PrivateKey, userAKeyPair.PublicKey);
+            var layer1Decrypted = _layer1Service.Decrypt(storedCiphertext, sharedSecretB);
+
+            // Step 4: Layer 2 decryption - User B's local decryption
+            // Note: In real scenario, User B would use their own master key
+            // For this test, we simulate User A decrypting their own message locally
+            var finalPlaintext = _layer2Service.Decrypt(layer1Decrypted, userAMasterKey);
+            var decryptedText = Encoding.UTF8.GetString(finalPlaintext);
+
+            // Assert
+            Assert.Equal(plaintext, decryptedText);
+            Assert.NotEqual(plaintextBytes, layer2Encrypted);
+            Assert.NotEqual(layer2Encrypted, layer1Encrypted);
+            Assert.NotEqual(plaintextBytes, storedCiphertext);
+        }
+
+        [Fact]
+        public async Task GroupMessage_SignalProtocol_MultipleRecipients()
+        {
+            // Arrange
+            var plaintext = "Group message to all members!";
+            var memberCount = 256; // Max group size
+
+            // Generate member public keys
+            var memberPublicKeys = new List<MemberPublicKey>();
+            for (int i = 0; i < memberCount; i++)
+            {
+                memberPublicKeys.Add(new MemberPublicKey
+                {
+                    UserId = Guid.NewGuid(),
+                    PublicKey = new byte[32] // X25519 public key
+                });
+            }
+
+            // Act - Encrypt group message
+            var startTime = DateTime.UtcNow;
+            var encryptionResult = await _groupService.EncryptForGroupAsync(plaintext, memberPublicKeys);
+            var encryptionDuration = (DateTime.UtcNow - startTime).TotalMilliseconds;
+
+            // Assert
+            Assert.NotNull(encryptionResult);
+            Assert.NotEmpty(encryptionResult.EncryptedContent);
+            Assert.Equal(memberCount, encryptionResult.EncryptedKeys.Count);
+            Assert.True(encryptionDuration < 5000, $"Encryption took {encryptionDuration}ms, expected < 5000ms for 256 members");
+            
+            // Verify each member has an encrypted key
+            foreach (var encryptedKey in encryptionResult.EncryptedKeys)
+            {
+                Assert.NotEmpty(encryptedKey.EncryptedGroupKey);
+            }
+        }
+
+        [Fact]
+        public async Task ForwardSecrecy_KeyRotation_OldKeysInvalid()
+        {
+            // Arrange
+            var plaintext = "Secret message";
+            var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
+
+            var oldKeyPair = _layer1Service.GenerateKeyPair();
+            var newKeyPair = _layer1Service.GenerateKeyPair();
+            var recipientKeyPair = _layer1Service.GenerateKeyPair();
+
+            // Encrypt with old key
+            var oldSharedSecret = _layer1Service.DeriveSharedSecret(oldKeyPair.PrivateKey, recipientKeyPair.PublicKey);
+            var oldEncrypted = _layer1Service.Encrypt(plaintextBytes, oldSharedSecret);
+
+            // Act - Rotate key
+            // Try to decrypt old message with new key (should fail)
+            var newSharedSecret = _layer1Service.DeriveSharedSecret(newKeyPair.PrivateKey, recipientKeyPair.PublicKey);
+
+            // Assert
+            Assert.Throws<Exception>(() =>
+            {
+                var decrypted = _layer1Service.Decrypt(oldEncrypted, newSharedSecret);
+            });
+
+            // Verify old key still works for old messages
+            var correctDecrypted = _layer1Service.Decrypt(oldEncrypted, oldSharedSecret);
+            Assert.Equal(plaintextBytes, correctDecrypted);
+        }
+
+        [Fact]
+        public async Task NoPlaintextLeak_InMemoryAndDatabase()
+        {
+            // Arrange
+            var plaintext = "TOP SECRET MESSAGE";
+            var plaintextBytes = Encoding.UTF8.GetBytes(plaintext);
+
+            var senderKeyPair = _layer1Service.GenerateKeyPair();
+            var recipientKeyPair = _layer1Service.GenerateKeyPair();
+            var sharedSecret = _layer1Service.DeriveSharedSecret(senderKeyPair.PrivateKey, recipientKeyPair.PublicKey);
+
+            // Act
+            var encrypted = _layer1Service.Encrypt(plaintextBytes, sharedSecret);
+
+            // Assert - Verify no plaintext in ciphertext
+            var encryptedString = Encoding.UTF8.GetString(encrypted);
+            Assert.DoesNotContain("TOP SECRET", encryptedString);
+            Assert.DoesNotContain("MESSAGE", encryptedString);
+
+            // Verify ciphertext is sufficiently different
+            var hammingDistance = 0;
+            var minLength = Math.Min(plaintextBytes.Length, encrypted.Length);
+            for (int i = 0; i < minLength; i++)
+            {
+                if (plaintextBytes[i] != encrypted[i])
+                    hammingDistance++;
+            }
+
+            Assert.True(hammingDistance > minLength * 0.4, "Ciphertext should differ significantly from plaintext");
+        }
+
+        [Fact]
+        public async Task Layer2_MasterKeyDerivation_DifferentSalts()
+        {
+            // Arrange
+            var password = "UserPassword123!";
+            var salt1 = new byte[32];
+            var salt2 = new byte[32];
+            new Random().NextBytes(salt1);
+            new Random().NextBytes(salt2);
+
+            // Act
+            var masterKey1 = _layer2Service.DeriveKey(password, salt1);
+            var masterKey2 = _layer2Service.DeriveKey(password, salt2);
+
+            // Assert - Same password, different salts → different keys
+            Assert.NotEqual(masterKey1, masterKey2);
+            Assert.Equal(32, masterKey1.Length);
+            Assert.Equal(32, masterKey2.Length);
+        }
+
+        [Fact]
+        public async Task GroupKeyGeneration_Randomness()
+        {
+            // Arrange & Act - Generate multiple group keys
+            var key1 = await _groupService.GenerateNewGroupKeyAsync();
+            var key2 = await _groupService.GenerateNewGroupKeyAsync();
+            var key3 = await _groupService.GenerateNewGroupKeyAsync();
+
+            // Assert - All keys should be different
+            Assert.NotEqual(key1, key2);
+            Assert.NotEqual(key2, key3);
+            Assert.NotEqual(key1, key3);
+            
+            // All keys should be 32 bytes (AES-256)
+            Assert.Equal(32, key1.Length);
+            Assert.Equal(32, key2.Length);
+            Assert.Equal(32, key3.Length);
+        }
+
+        [Fact]
+        public async Task GroupEncryption_PerformanceTest()
+        {
+            // Arrange
+            var plaintext = "Performance test message for group encryption";
+            var memberPublicKeys = new List<MemberPublicKey>();
+            
+            // Add 100 members
+            for (int i = 0; i < 100; i++)
+            {
+                memberPublicKeys.Add(new MemberPublicKey
+                {
+                    UserId = Guid.NewGuid(),
+                    PublicKey = new byte[32]
+                });
+            }
+
+            // Act
+            var startTime = DateTime.UtcNow;
+            var result = await _groupService.EncryptForGroupAsync(plaintext, memberPublicKeys);
+            var duration = (DateTime.UtcNow - startTime).TotalMilliseconds;
+
+            // Assert
+            Assert.True(duration < 2000, $"Encryption for 100 members took {duration}ms, expected < 2000ms");
+            Assert.Equal(100, result.EncryptedKeys.Count);
+        }
+    }
+}

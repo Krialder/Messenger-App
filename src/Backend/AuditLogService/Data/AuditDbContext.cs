@@ -1,46 +1,70 @@
-// ========================================
-// PSEUDO-CODE - Sprint 11: Audit Log Database Context
-// ========================================
-
 using Microsoft.EntityFrameworkCore;
+using AuditLogService.Data.Entities;
 
-namespace SecureMessenger.AuditLogService.Data;
-
-public class AuditDbContext : DbContext
+namespace AuditLogService.Data
 {
-    public AuditDbContext(DbContextOptions<AuditDbContext> options) : base(options)
+    public class AuditDbContext : DbContext
     {
-    }
-    
-    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
-    
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<AuditLog>(entity =>
+        public AuditDbContext(DbContextOptions<AuditDbContext> options) : base(options)
         {
-            entity.HasKey(e => e.Id);
-            entity.HasIndex(e => new { e.UserId, e.Timestamp });
-            entity.HasIndex(e => e.EventType);
-            entity.HasIndex(e => e.Timestamp);
-            
-            entity.Property(e => e.EventType).HasMaxLength(100);
-            entity.Property(e => e.IpAddress).HasMaxLength(45); // IPv6
-        });
+        }
+
+        public DbSet<AuditLog> AuditLogs { get; set; } = null!;
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<AuditLog>(entity =>
+            {
+                entity.ToTable("audit_logs", "audit");
+
+                entity.HasKey(e => e.Id);
+
+                entity.Property(e => e.Id)
+                    .HasColumnName("id")
+                    .HasDefaultValueSql("gen_random_uuid()");
+
+                entity.Property(e => e.UserId)
+                    .HasColumnName("user_id")
+                    .IsRequired();
+
+                entity.Property(e => e.Action)
+                    .HasColumnName("action")
+                    .HasMaxLength(100)
+                    .IsRequired();
+
+                entity.Property(e => e.Resource)
+                    .HasColumnName("resource")
+                    .HasMaxLength(255)
+                    .IsRequired();
+
+                entity.Property(e => e.Details)
+                    .HasColumnName("details")
+                    .HasColumnType("jsonb");
+
+                entity.Property(e => e.IpAddress)
+                    .HasColumnName("ip_address")
+                    .HasMaxLength(45);
+
+                entity.Property(e => e.Timestamp)
+                    .HasColumnName("timestamp")
+                    .HasDefaultValueSql("NOW()");
+
+                entity.Property(e => e.Severity)
+                    .HasColumnName("severity")
+                    .HasMaxLength(20)
+                    .HasDefaultValue("Info");
+
+                entity.HasIndex(e => e.UserId)
+                    .HasDatabaseName("idx_audit_user");
+
+                entity.HasIndex(e => e.Timestamp)
+                    .HasDatabaseName("idx_audit_timestamp");
+
+                entity.HasIndex(e => e.Action)
+                    .HasDatabaseName("idx_audit_action");
+            });
+        }
     }
-}
-
-// ========================================
-// ENTITIES
-// ========================================
-
-public class AuditLog
-{
-    public Guid Id { get; set; }
-    public Guid UserId { get; set; }
-    public string EventType { get; set; } = string.Empty;
-    public DateTime Timestamp { get; set; }
-    public string? IpAddress { get; set; }
-    public string? UserAgent { get; set; }
-    public string? AdditionalData { get; set; } // JSON
-    public bool IsCritical { get; set; } // Keep longer for critical events
 }

@@ -18,6 +18,8 @@
     <PackageReference Include="FluentAssertions" Version="6.12.0" />
     <PackageReference Include="Moq" Version="4.20.70" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.0" />
+    <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
+    <PackageReference Include="Otp.NET" Version="1.4.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,6 +29,8 @@
     <ProjectReference Include="..\..\src\Backend\UserService\UserService.csproj" />
     <ProjectReference Include="..\..\src\Backend\KeyManagementService\KeyManagementService.csproj" />
     <ProjectReference Include="..\..\src\Backend\NotificationService\NotificationService.csproj" />
+    <ProjectReference Include="..\..\src\Backend\FileTransferService\FileTransferService.csproj" />
+    <ProjectReference Include="..\..\src\Backend\AuditLogService\AuditLogService.csproj" />
     <ProjectReference Include="..\..\src\Shared\MessengerContracts\MessengerContracts.csproj" />
   </ItemGroup>
 

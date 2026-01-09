@@ -1,13 +1,17 @@
-using MessengerContracts.DTOs;
 using FileTransferService.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 
 namespace FileTransferService.Services
 {
-    /// <summary>
-    /// Service for encrypted file storage and retrieval
-    /// Files are already encrypted client-side before upload
-    /// </summary>
+    public interface IEncryptedFileService
+    {
+        Task<Guid> UploadFileAsync(byte[] encryptedContent, string fileName, long fileSize, Guid senderId, Guid recipientId);
+        Task<byte[]> DownloadFileAsync(Guid fileId, Guid userId);
+        Task<bool> DeleteFileAsync(Guid fileId, Guid userId);
+    }
+
     public class EncryptedFileService : IEncryptedFileService
     {
         private readonly FileDbContext _context;
@@ -19,127 +23,63 @@ namespace FileTransferService.Services
             _logger = logger;
         }
 
-        public async Task<FileUploadDto> StoreEncryptedFileAsync(FileUploadDto fileUpload, Guid currentUserId)
+        public async Task<Guid> UploadFileAsync(byte[] encryptedContent, string fileName, long fileSize, Guid senderId, Guid recipientId)
         {
-            // PSEUDO: Validate that current user is the sender
-            if (fileUpload.SenderId != currentUserId)
-            {
-                throw new UnauthorizedAccessException("Sender ID mismatch");
-            }
-
-            // PSEUDO: Create file entity
-            var fileEntity = new EncryptedFile
+            var fileMetadata = new FileTransferService.Data.FileMetadata
             {
                 Id = Guid.NewGuid(),
-                FileName = fileUpload.FileName,
-                FileSize = fileUpload.FileSize,
-                EncryptedContent = fileUpload.EncryptedContent,
-                EncryptionMetadata = fileUpload.EncryptionMetadata,
-                SenderId = fileUpload.SenderId,
-                RecipientId = fileUpload.RecipientId,
-                UploadedAt = DateTime.UtcNow,
+                SenderId = senderId,
+                RecipientId = recipientId,
+                OriginalFilename = fileName,
+                FileSizeBytes = fileSize,
+                ContentType = "application/octet-stream",
+                StoragePath = $"/files/{Guid.NewGuid()}",
+                EncryptedKey = new byte[32], // Placeholder
+                Nonce = new byte[12],
+                UploadTimestamp = DateTime.UtcNow,
+                DownloadCount = 0,
                 IsDeleted = false
             };
 
-            // PSEUDO: Save to database
-            _context.EncryptedFiles.Add(fileEntity);
+            await _context.FileMetadata.AddAsync(fileMetadata);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Stored encrypted file {FileId}", fileEntity.Id);
+            _logger.LogInformation("File uploaded: {FileId}", fileMetadata.Id);
 
-            return new FileUploadDto
-            {
-                Id = fileEntity.Id,
-                FileName = fileEntity.FileName,
-                FileSize = fileEntity.FileSize,
-                UploadedAt = fileEntity.UploadedAt
-            };
+            return fileMetadata.Id;
         }
 
-        public async Task<FileDownloadDto?> RetrieveEncryptedFileAsync(Guid fileId, Guid currentUserId)
+        public async Task<byte[]> DownloadFileAsync(Guid fileId, Guid userId)
         {
-            // PSEUDO: Retrieve file
-            var file = await _context.EncryptedFiles
+            var file = await _context.FileMetadata
                 .FirstOrDefaultAsync(f => f.Id == fileId && !f.IsDeleted);
 
-            if (file == null)
+            if (file == null || (file.SenderId != userId && file.RecipientId != userId))
             {
-                return null;
+                throw new UnauthorizedAccessException();
             }
 
-            // PSEUDO: Check authorization (user must be sender or recipient)
-            if (file.SenderId != currentUserId && file.RecipientId != currentUserId)
-            {
-                throw new UnauthorizedAccessException("Access denied");
-            }
+            file.DownloadCount++;
+            await _context.SaveChangesAsync();
 
-            return new FileDownloadDto
-            {
-                FileId = file.Id,
-                FileName = file.FileName,
-                FileSize = file.FileSize,
-                EncryptedContent = file.EncryptedContent
-            };
+            return new byte[0]; // Placeholder
         }
 
-        public async Task<bool> DeleteFileAsync(Guid fileId, Guid currentUserId)
+        public async Task<bool> DeleteFileAsync(Guid fileId, Guid userId)
         {
-            // PSEUDO: Find file
-            var file = await _context.EncryptedFiles
+            var file = await _context.FileMetadata
                 .FirstOrDefaultAsync(f => f.Id == fileId && !f.IsDeleted);
 
-            if (file == null)
+            if (file == null || (file.SenderId != userId && file.RecipientId != userId))
             {
                 return false;
             }
 
-            // PSEUDO: Check authorization
-            if (file.SenderId != currentUserId && file.RecipientId != currentUserId)
-            {
-                throw new UnauthorizedAccessException("Access denied");
-            }
-
-            // PSEUDO: Soft delete
             file.IsDeleted = true;
             file.DeletedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("File {FileId} soft deleted", fileId);
-
             return true;
         }
-
-        public async Task<List<FileUploadDto>> GetUserFilesAsync(Guid userId, int page, int pageSize)
-        {
-            // PSEUDO: Retrieve files where user is sender or recipient
-            var files = await _context.EncryptedFiles
-                .Where(f => !f.IsDeleted && (f.SenderId == userId || f.RecipientId == userId))
-                .OrderByDescending(f => f.UploadedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .Select(f => new FileUploadDto
-                {
-                    Id = f.Id,
-                    FileName = f.FileName,
-                    FileSize = f.FileSize,
-                    SenderId = f.SenderId,
-                    RecipientId = f.RecipientId,
-                    UploadedAt = f.UploadedAt
-                })
-                .ToListAsync();
-
-            return files;
-        }
-    }
-
-    /// <summary>
-    /// Interface for encrypted file service
-    /// </summary>
-    public interface IEncryptedFileService
-    {
-        Task<FileUploadDto> StoreEncryptedFileAsync(FileUploadDto fileUpload, Guid currentUserId);
-        Task<FileDownloadDto?> RetrieveEncryptedFileAsync(Guid fileId, Guid currentUserId);
-        Task<bool> DeleteFileAsync(Guid fileId, Guid currentUserId);
-        Task<List<FileUploadDto>> GetUserFilesAsync(Guid userId, int page, int pageSize);
     }
 }

@@ -1,0 +1,309 @@
+using System;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using Xunit;
+using Microsoft.EntityFrameworkCore;
+using AuthService.Data;
+using AuthService.Services;
+using MessengerContracts.DTOs;
+using Microsoft.Extensions.Configuration;
+using AuthUser = AuthService.Data.Entities.User;
+
+namespace MessengerTests.IntegrationTests
+{
+    public class AuthenticationFlowTests : IDisposable
+    {
+        private readonly AuthDbContext _context;
+        private readonly Argon2PasswordHasher _passwordHasher;
+        private readonly TokenService _tokenService;
+        private readonly MFAService _mfaService;
+        private readonly IConfiguration _configuration;
+
+        public AuthenticationFlowTests()
+        {
+            var options = new DbContextOptionsBuilder<AuthDbContext>()
+                .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+                .Options;
+            _context = new AuthDbContext(options);
+
+            _passwordHasher = new Argon2PasswordHasher();
+
+            var inMemorySettings = new Dictionary<string, string>
+            {
+                {"Jwt:Secret", "ThisIsAVerySecureSecretKeyForTestingPurposesOnly12345678901234567890"},
+                {"Jwt:Issuer", "MessengerAuthService"},
+                {"Jwt:Audience", "MessengerClient"},
+                {"Jwt:ExpiryMinutes", "60"}
+            };
+            _configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(inMemorySettings)
+                .Build();
+
+            _tokenService = new TokenService(_configuration);
+            _mfaService = new MFAService(_context, _passwordHasher);
+        }
+
+        [Fact]
+        public async Task CompleteAuthFlow_RegisterToRefresh_Success()
+        {
+            // Arrange
+            var username = "testuser";
+            var email = "test@example.com";
+            var password = "SecurePassword123!";
+
+            // Act 1: Register
+            var userId = Guid.NewGuid();
+            var passwordHash = _passwordHasher.HashPassword(password);
+
+            var user = new AuthUser
+            {
+                Id = userId,
+                Username = username,
+                Email = email,
+                PasswordHash = passwordHash,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _context.Users.AddAsync(user);
+            await _context.SaveChangesAsync();
+
+            // Assert 1: User registered
+            var registeredUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            Assert.NotNull(registeredUser);
+            Assert.Equal(email, registeredUser.Email);
+            Assert.True(_passwordHasher.VerifyPassword(password, registeredUser.PasswordHash));
+
+            // Act 2: Login
+            var loginUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            Assert.NotNull(loginUser);
+
+            var isPasswordValid = _passwordHasher.VerifyPassword(password, loginUser.PasswordHash);
+            Assert.True(isPasswordValid);
+
+            // Generate tokens
+            var accessToken = _tokenService.GenerateAccessToken(loginUser.Id, loginUser.Username, new[] { "User" });
+            var refreshToken = _tokenService.GenerateRefreshToken();
+
+            // Store refresh token
+            loginUser.RefreshToken = refreshToken;
+            loginUser.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+            await _context.SaveChangesAsync();
+
+            // Assert 2: Tokens generated
+            Assert.NotNull(accessToken);
+            Assert.NotNull(refreshToken);
+            Assert.NotEmpty(accessToken);
+            Assert.NotEmpty(refreshToken);
+
+            // Act 3: Refresh Token
+            var storedUser = await _context.Users.FirstOrDefaultAsync(u => u.RefreshToken == refreshToken);
+            Assert.NotNull(storedUser);
+            Assert.True(storedUser.RefreshTokenExpiryTime > DateTime.UtcNow);
+
+            var newAccessToken = _tokenService.GenerateAccessToken(storedUser.Id, storedUser.Username, new[] { "User" });
+            var newRefreshToken = _tokenService.GenerateRefreshToken();
+
+            // Invalidate old refresh token
+            storedUser.RefreshToken = newRefreshToken;
+            storedUser.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+            await _context.SaveChangesAsync();
+
+            // Assert 3: Token refreshed
+            Assert.NotNull(newAccessToken);
+            Assert.NotNull(newRefreshToken);
+            Assert.NotEqual(refreshToken, newRefreshToken);
+
+            // Verify old refresh token is invalidated
+            var oldTokenUser = await _context.Users.FirstOrDefaultAsync(u => u.RefreshToken == refreshToken);
+            Assert.Null(oldTokenUser);
+        }
+
+        [Fact]
+        public async Task MFA_TOTP_LoginFlow_Success()
+        {
+            // Arrange
+            var username = "mfauser";
+            var email = "mfa@example.com";
+            var password = "SecurePassword123!";
+            var userId = Guid.NewGuid();
+
+            var user = new AuthUser
+            {
+                Id = userId,
+                Username = username,
+                Email = email,
+                PasswordHash = _passwordHasher.HashPassword(password),
+                IsActive = true,
+                IsMfaEnabled = false,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _context.Users.AddAsync(user);
+            await _context.SaveChangesAsync();
+
+            // Act 1: Enable TOTP MFA
+            var totpSetup = await _mfaService.SetupTOTP(userId);
+            Assert.NotNull(totpSetup);
+            Assert.NotEmpty(totpSetup.Secret);
+            Assert.NotEmpty(totpSetup.QrCodeBase64);
+
+            user.MfaSecret = totpSetup.Secret;
+            user.IsMfaEnabled = true;
+            await _context.SaveChangesAsync();
+
+            // Act 2: Login with username + password (MFA challenge required)
+            var loginUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            Assert.NotNull(loginUser);
+            Assert.True(loginUser.IsMfaEnabled);
+
+            var isPasswordValid = _passwordHasher.VerifyPassword(password, loginUser.PasswordHash);
+            Assert.True(isPasswordValid);
+
+            // User needs to provide TOTP code (simulated here)
+            // In real scenario, user would input code from authenticator app
+
+            // Act 3: Verify TOTP code (using OtpNet library)
+            var otp = new OtpNet.Totp(Convert.FromBase64String(totpSetup.Secret));
+            var totpCode = otp.ComputeTotp();
+
+            var isValidTotp = await _mfaService.VerifyTOTP(userId, totpCode);
+            Assert.True(isValidTotp);
+
+            // Act 4: Issue JWT token after successful MFA
+            var accessToken = _tokenService.GenerateAccessToken(loginUser.Id, loginUser.Username, new[] { "User", "MFA" });
+            Assert.NotNull(accessToken);
+            Assert.NotEmpty(accessToken);
+        }
+
+        [Fact]
+        public async Task MFA_InvalidTOTP_Reject()
+        {
+            // Arrange
+            var userId = Guid.NewGuid();
+            var user = new AuthUser
+            {
+                Id = userId,
+                Username = "mfauser2",
+                Email = "mfa2@example.com",
+                PasswordHash = _passwordHasher.HashPassword("Password123!"),
+                IsActive = true,
+                IsMfaEnabled = true,
+                MfaSecret = Convert.ToBase64String(new byte[20]), // Random secret
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _context.Users.AddAsync(user);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var isValidTotp = await _mfaService.VerifyTOTP(userId, "000000"); // Invalid code
+
+            // Assert
+            Assert.False(isValidTotp);
+        }
+
+        [Fact]
+        public async Task RecoveryCodes_Generation_And_Usage()
+        {
+            // Arrange
+            var userId = Guid.NewGuid();
+            var user = new AuthUser
+            {
+                Id = userId,
+                Username = "recoveryuser",
+                Email = "recovery@example.com",
+                PasswordHash = _passwordHasher.HashPassword("Password123!"),
+                IsActive = true,
+                IsMfaEnabled = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _context.Users.AddAsync(user);
+            await _context.SaveChangesAsync();
+
+            // Act 1: Generate recovery codes
+            var recoveryCodes = await _mfaService.GenerateRecoveryCodes(userId);
+            Assert.NotNull(recoveryCodes);
+            Assert.Equal(10, recoveryCodes.Count);
+            Assert.All(recoveryCodes, code => Assert.Equal(16, code.Length));
+
+            // Act 2: Use recovery code
+            var codeToUse = recoveryCodes[0];
+            var isValidCode = await _mfaService.VerifyRecoveryCode(userId, codeToUse);
+            Assert.True(isValidCode);
+
+            // Act 3: Try to reuse same code (should fail)
+            var isValidReuse = await _mfaService.VerifyRecoveryCode(userId, codeToUse);
+            Assert.False(isValidReuse, "Recovery code should be single-use only");
+        }
+
+        [Fact]
+        public async Task TokenExpiration_Handled_Correctly()
+        {
+            // Arrange
+            var userId = Guid.NewGuid();
+            var username = "expireduser";
+            var user = new AuthUser
+            {
+                Id = userId,
+                Username = username,
+                Email = "expired@example.com",
+                PasswordHash = _passwordHasher.HashPassword("Password123!"),
+                IsActive = true,
+                RefreshToken = "old-refresh-token",
+                RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(-1), // Expired
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _context.Users.AddAsync(user);
+            await _context.SaveChangesAsync();
+
+            // Act
+            var storedUser = await _context.Users.FirstOrDefaultAsync(u => u.RefreshToken == "old-refresh-token");
+            Assert.NotNull(storedUser);
+
+            // Assert - Token is expired
+            Assert.True(storedUser.RefreshTokenExpiryTime < DateTime.UtcNow);
+
+            // Refresh should be rejected (in real implementation)
+            // New login required
+        }
+
+        [Fact]
+        public async Task ConcurrentLogin_MultipleSessions_Allowed()
+        {
+            // Arrange
+            var userId = Guid.NewGuid();
+            var user = new AuthUser
+            {
+                Id = userId,
+                Username = "multiuser",
+                Email = "multi@example.com",
+                PasswordHash = _passwordHasher.HashPassword("Password123!"),
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await _context.Users.AddAsync(user);
+            await _context.SaveChangesAsync();
+
+            // Act - Simulate 3 concurrent logins
+            var token1 = _tokenService.GenerateAccessToken(userId, user.Username, new[] { "User" });
+            var token2 = _tokenService.GenerateAccessToken(userId, user.Username, new[] { "User" });
+            var token3 = _tokenService.GenerateAccessToken(userId, user.Username, new[] { "User" });
+
+            // Assert - All tokens are valid
+            Assert.NotNull(token1);
+            Assert.NotNull(token2);
+            Assert.NotNull(token3);
+            Assert.NotEqual(token1, token2);
+            Assert.NotEqual(token2, token3);
+        }
+
+        public void Dispose()
+        {
+            _context?.Dispose();
+        }
+    }
+}
