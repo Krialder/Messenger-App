@@ -22,15 +22,17 @@ namespace MessengerContracts.DTOs
     }
 
     /// <summary>
-    /// DTO for MFA method
+    /// DTO for MFA method information
     /// </summary>
     public class MfaMethodDto
     {
         public Guid Id { get; set; }
-        public MfaMethodType MethodType { get; set; }
+        public string MethodType { get; set; } = string.Empty;
+        public string FriendlyName { get; set; } = string.Empty;
         public bool IsPrimary { get; set; }
         public bool IsEnabled { get; set; }
         public DateTime CreatedAt { get; set; }
+        public DateTime? LastUsedAt { get; set; }
     }
 
     public enum MfaMethodType

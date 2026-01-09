@@ -1,104 +1,137 @@
+using MessengerContracts.DTOs;
 using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
 using System.Text;
 using System.Text.Json;
 
-namespace MessageService.Services
+namespace MessageService.Services;
+
+/// <summary>
+/// RabbitMQ service for publishing events to message queue.
+/// </summary>
+public class RabbitMQService : IRabbitMQService, IDisposable
 {
-    public interface IMessageQueueService
+    private readonly IConnection _connection;
+    private readonly IModel _channel;
+    private readonly ILogger<RabbitMQService> _logger;
+    private const string ExchangeName = "messenger.events";
+    private bool _disposed;
+
+    public RabbitMQService(IConfiguration configuration, ILogger<RabbitMQService> logger)
     {
-        Task PublishMessageAsync(object message);
-        void StartConsuming();
-    }
+        _logger = logger;
 
-    public class RabbitMQService : IMessageQueueService
-    {
-        // PSEUDO CODE: RabbitMQ Service for Message Queue
-        // Handles asynchronous message processing and delivery
+        string? hostName = configuration["RabbitMQ:HostName"] ?? "localhost";
+        int port = int.TryParse(configuration["RabbitMQ:Port"], out int p) ? p : 5672;
+        string? userName = configuration["RabbitMQ:UserName"] ?? "guest";
+        string? password = configuration["RabbitMQ:Password"] ?? "guest";
 
-        private readonly IConnection _connection;
-        private readonly IModel _channel;
-        private const string QueueName = "messages";
-
-        public RabbitMQService()
+        ConnectionFactory factory = new ConnectionFactory
         {
-            // PSEUDO CODE: Initialize RabbitMQ connection
-            // 1. Connect to RabbitMQ server
-            // 2. Create channel
-            // 3. Declare queue (durable = true)
-            
-            var factory = new ConnectionFactory
-            {
-                HostName = "localhost",
-                UserName = "guest",
-                Password = "guest"
-            };
-            
+            HostName = hostName,
+            Port = port,
+            UserName = userName,
+            Password = password,
+            DispatchConsumersAsync = true
+        };
+
+        try
+        {
             _connection = factory.CreateConnection();
             _channel = _connection.CreateModel();
-            
-            _channel.QueueDeclare(
-                queue: QueueName,
+
+            // Declare topic exchange for event routing
+            _channel.ExchangeDeclare(
+                exchange: ExchangeName,
+                type: ExchangeType.Topic,
                 durable: true,
-                exclusive: false,
-                autoDelete: false,
-                arguments: null
-            );
+                autoDelete: false);
+
+            _logger.LogInformation("RabbitMQ connection established to {HostName}:{Port}", hostName, port);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to connect to RabbitMQ at {HostName}:{Port}", hostName, port);
+            throw;
+        }
+    }
+
+    public Task PublishMessageSentEventAsync(MessageSentEvent eventData, CancellationToken cancellationToken = default)
+    {
+        return PublishEventAsync("message.sent", eventData, cancellationToken);
+    }
+
+    public Task PublishMessageDeliveredEventAsync(MessageDeliveredEvent eventData, CancellationToken cancellationToken = default)
+    {
+        return PublishEventAsync("message.delivered", eventData, cancellationToken);
+    }
+
+    public Task PublishMessageReadEventAsync(MessageReadEvent eventData, CancellationToken cancellationToken = default)
+    {
+        return PublishEventAsync("message.read", eventData, cancellationToken);
+    }
+
+    public Task PublishUserTypingEventAsync(UserTypingEvent eventData, CancellationToken cancellationToken = default)
+    {
+        return PublishEventAsync("user.typing", eventData, cancellationToken);
+    }
+
+    public Task PublishUserOnlineEventAsync(UserOnlineEvent eventData, CancellationToken cancellationToken = default)
+    {
+        return PublishEventAsync("user.online", eventData, cancellationToken);
+    }
+
+    private Task PublishEventAsync<T>(string routingKey, T eventData, CancellationToken cancellationToken)
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(RabbitMQService));
         }
 
-        public async Task PublishMessageAsync(object message)
+        try
         {
-            // PSEUDO CODE:
-            // 1. Serialize message to JSON
-            // 2. Convert to byte array
-            // 3. Set message properties (persistent = true)
-            // 4. Publish to queue
-            
-            var json = JsonSerializer.Serialize(message);
-            var body = Encoding.UTF8.GetBytes(json);
-            
-            var properties = _channel.CreateBasicProperties();
-            properties.Persistent = true;
-            
-            _channel.BasicPublish(
-                exchange: "",
-                routingKey: QueueName,
-                basicProperties: properties,
-                body: body
-            );
-            
-            await Task.CompletedTask;
-        }
-
-        public void StartConsuming()
-        {
-            // PSEUDO CODE:
-            // 1. Create consumer
-            // 2. Subscribe to queue
-            // 3. Process messages asynchronously
-            //    - Parse message
-            //    - Deliver to recipient via SignalR
-            //    - Acknowledge message
-            
-            var consumer = new EventingBasicConsumer(_channel);
-            
-            consumer.Received += async (model, ea) =>
+            string json = JsonSerializer.Serialize(eventData, new JsonSerializerOptions
             {
-                var body = ea.Body.ToArray();
-                var json = Encoding.UTF8.GetString(body);
-                
-                // Process message
-                // var message = JsonSerializer.Deserialize<MessageDto>(json);
-                // await _signalRService.NotifyRecipient(message);
-                
-                _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
-            };
-            
-            _channel.BasicConsume(
-                queue: QueueName,
-                autoAck: false,
-                consumer: consumer
-            );
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
+
+            byte[] body = Encoding.UTF8.GetBytes(json);
+
+            IBasicProperties properties = _channel.CreateBasicProperties();
+            properties.Persistent = true;
+            properties.ContentType = "application/json";
+            properties.Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+            _channel.BasicPublish(
+                exchange: ExchangeName,
+                routingKey: routingKey,
+                basicProperties: properties,
+                body: body);
+
+            _logger.LogDebug("Published event {RoutingKey} to RabbitMQ", routingKey);
+
+            return Task.CompletedTask;
         }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to publish event {RoutingKey} to RabbitMQ", routingKey);
+            throw;
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _channel?.Close();
+        _channel?.Dispose();
+        _connection?.Close();
+        _connection?.Dispose();
+
+        _disposed = true;
+
+        _logger.LogInformation("RabbitMQ connection disposed");
     }
 }

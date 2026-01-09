@@ -1,105 +1,209 @@
 // ========================================
-// PSEUDO-CODE - Sprint 6: Key Management Service
-// Status: 🔶 API-Struktur definiert
+// Sprint 6: Key Management Service
+// Status: 🔷 API-Implementierung abgeschlossen
 // Dependencies: Sprint 3 (Layer 1 Crypto)
-// ========================================
-
-using Microsoft.AspNetCore.Mvc;
+using KeyManagementService.Data;
+using KeyManagementService.Data.Entities;
+using KeyManagementService.Services;
+using MessengerContracts.DTOs;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
-namespace SecureMessenger.KeyManagementService.Controllers;
+namespace KeyManagementService.Controllers;
 
+/// <summary>
+/// Controller for managing user public keys.
+/// </summary>
 [ApiController]
 [Route("api/keys")]
 [Authorize]
 public class KeyController : ControllerBase
 {
-    // TODO-SPRINT-6: Inject IKeyManagementService, ILogger
-    
+    private readonly KeyDbContext _context;
+    private readonly IKeyRotationService _keyRotationService;
+    private readonly ILogger<KeyController> _logger;
+
+    public KeyController(
+        KeyDbContext context,
+        IKeyRotationService keyRotationService,
+        ILogger<KeyController> logger)
+    {
+        _context = context;
+        _keyRotationService = keyRotationService;
+        _logger = logger;
+    }
+
     /// <summary>
-    /// Get public key for a specific user
+    /// Get the active public key for a user.
     /// </summary>
-    /// <param name="userId">User ID (GUID)</param>
-    /// <returns>Public key information</returns>
     [HttpGet("public/{userId}")]
+    [ProducesResponseType(typeof(PublicKeyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetPublicKey(Guid userId)
     {
-        // PSEUDO: Load public key from database
-        // PSEUDO: Check if key is still valid (not expired)
-        // PSEUDO: Return PublicKeyResponse
-        
-        // DATA-FLOW: Client → API → Database → PublicKeyResponse
-        
-        return Ok(new
+        PublicKey? key = await _context.PublicKeys
+            .Where(k => k.UserId == userId && k.IsActive)
+            .OrderByDescending(k => k.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (key == null)
         {
-            userId = userId,
-            publicKey = "base64-encoded-x25519-public-key",
-            createdAt = DateTime.UtcNow,
-            expiresAt = DateTime.UtcNow.AddYears(1)
-        });
+            return NotFound(new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Public key not found",
+                Detail = $"No active public key found for user {userId}."
+            });
+        }
+
+        PublicKeyDto dto = new PublicKeyDto
+        {
+            Id = key.Id,
+            UserId = key.UserId,
+            PublicKey = Convert.ToBase64String(key.Key),
+            CreatedAt = key.CreatedAt,
+            ExpiresAt = key.ExpiresAt
+        };
+
+        return Ok(dto);
     }
-    
+
     /// <summary>
-    /// Rotate own public key (client generates new keypair)
+    /// Rotate the current user's public key.
     /// </summary>
-    /// <param name="request">New public key</param>
-    /// <returns>Success response</returns>
     [HttpPost("rotate")]
+    [ProducesResponseType(typeof(PublicKeyDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> RotateKey([FromBody] RotateKeyRequest request)
     {
-        // PSEUDO: Get current user ID from JWT
-        // PSEUDO: Validate new public key format
-        // PSEUDO: Mark old key as expired
-        // PSEUDO: Insert new key with current timestamp
-        // PSEUDO: Log key rotation event (Audit)
-        
-        // SECURITY: Old key should remain in DB for message history decryption
-        
-        return Ok(new
+        string? userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out Guid userId))
         {
-            message = "Key rotated successfully",
-            keyId = Guid.NewGuid()
-        });
-    }
-    
-    /// <summary>
-    /// Get key rotation history for current user
-    /// </summary>
-    /// <returns>List of historical keys</returns>
-    [HttpGet("history")]
-    public async Task<IActionResult> GetKeyHistory()
-    {
-        // PSEUDO: Get current user ID from JWT
-        // PSEUDO: Load all keys for user (ordered by created_at DESC)
-        // PSEUDO: Return list with status (active, expired, revoked)
-        
-        return Ok(new
+            return Unauthorized();
+        }
+
+        if (string.IsNullOrEmpty(request.NewPublicKey))
         {
-            keys = new[]
+            return BadRequest(new ProblemDetails
             {
-                new { keyId = Guid.NewGuid(), status = "active", createdAt = DateTime.UtcNow },
-                new { keyId = Guid.NewGuid(), status = "expired", createdAt = DateTime.UtcNow.AddMonths(-6) }
-            }
-        });
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Invalid request",
+                Detail = "NewPublicKey is required."
+            });
+        }
+
+        byte[] newPublicKeyBytes;
+
+        try
+        {
+            newPublicKeyBytes = Convert.FromBase64String(request.NewPublicKey);
+        }
+        catch (FormatException)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Invalid public key format",
+                Detail = "NewPublicKey must be a valid Base64 string."
+            });
+        }
+
+        if (newPublicKeyBytes.Length != 32)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Invalid public key size",
+                Detail = "Public key must be 32 bytes (X25519)."
+            });
+        }
+
+        PublicKey newKey = await _keyRotationService.RotateUserKeyAsync(userId, newPublicKeyBytes);
+
+        _logger.LogInformation("User {UserId} rotated their public key to {KeyId}.", userId, newKey.Id);
+
+        PublicKeyDto dto = new PublicKeyDto
+        {
+            Id = newKey.Id,
+            UserId = newKey.UserId,
+            PublicKey = Convert.ToBase64String(newKey.Key),
+            CreatedAt = newKey.CreatedAt,
+            ExpiresAt = newKey.ExpiresAt
+        };
+
+        return Ok(dto);
     }
-    
+
     /// <summary>
-    /// Emergency key revocation (e.g., device compromised)
+    /// Revoke a specific key (emergency).
     /// </summary>
-    /// <param name="keyId">Key ID to revoke</param>
-    /// <returns>Success response</returns>
-    [HttpPost("revoke/{keyId}")]
+    [HttpDelete("{keyId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RevokeKey(Guid keyId)
     {
-        // PSEUDO: Verify user owns this key
-        // PSEUDO: Mark key as revoked
-        // PSEUDO: Generate new key pair (client-side initiated)
-        // PSEUDO: Send notification to all devices
-        // PSEUDO: Log emergency revocation event
-        
-        return Ok(new { message = "Key revoked successfully" });
+        string? userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out Guid userId))
+        {
+            return Unauthorized();
+        }
+
+        PublicKey? key = await _context.PublicKeys
+            .FirstOrDefaultAsync(k => k.Id == keyId && k.UserId == userId);
+
+        if (key == null)
+        {
+            return NotFound(new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "Key not found",
+                Detail = $"Key {keyId} not found or does not belong to the current user."
+            });
+        }
+
+        await _keyRotationService.RevokeKeyAsync(keyId);
+
+        _logger.LogInformation("User {UserId} revoked key {KeyId}.", userId, keyId);
+
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Get key history for the current user.
+    /// </summary>
+    [HttpGet("history")]
+    [ProducesResponseType(typeof(List<PublicKeyDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetKeyHistory()
+    {
+        string? userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out Guid userId))
+        {
+            return Unauthorized();
+        }
+
+        List<PublicKey> keys = await _context.PublicKeys
+            .Where(k => k.UserId == userId)
+            .OrderByDescending(k => k.CreatedAt)
+            .ToListAsync();
+
+        List<PublicKeyDto> dtos = keys.Select(k => new PublicKeyDto
+        {
+            Id = k.Id,
+            UserId = k.UserId,
+            PublicKey = Convert.ToBase64String(k.Key),
+            CreatedAt = k.CreatedAt,
+            ExpiresAt = k.ExpiresAt
+        }).ToList();
+
+        return Ok(dtos);
     }
 }
+
 
 // ========================================
 // REQUEST/RESPONSE DTOs

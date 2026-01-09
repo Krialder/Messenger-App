@@ -1,52 +1,445 @@
 // ========================================
-// PSEUDO-CODE - Sprint 2: Auth Service Tests
-// Status: 🔶 Test-Struktur definiert
+// AUTH SERVICE UNIT TESTS
+// Status: 🟢 Completed
 // ========================================
 
+using AuthService.Controllers;
+using AuthService.Data;
+using AuthService.Services;
+using MessengerContracts.DTOs;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
-namespace SecureMessenger.Tests.ServiceTests;
+namespace MessengerTests.ServiceTests;
 
-public class AuthServiceTests
+/// <summary>
+/// Unit tests for AuthService - Registration, Login, JWT, MFA.
+/// </summary>
+public class AuthServiceTests : IDisposable
 {
-    // TODO-SPRINT-2: Setup mock dependencies
-    
+    private readonly AuthDbContext _context;
+    private readonly AuthController _controller;
+    private readonly TokenService _tokenService;
+    private readonly Argon2PasswordHasher _passwordHasher;
+    private readonly MFAService _mfaService;
+    private readonly ILogger<AuthController> _logger;
+
+    public AuthServiceTests()
+    {
+        // Setup in-memory database
+        var options = new DbContextOptionsBuilder<AuthDbContext>()
+            .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+            .Options;
+
+        _context = new AuthDbContext(options);
+
+        // Setup configuration
+        var inMemorySettings = new Dictionary<string, string>
+        {
+            {"Jwt:Secret", "test-secret-key-for-jwt-token-generation-minimum-32-characters-long"},
+            {"Jwt:Issuer", "TestIssuer"},
+            {"Jwt:Audience", "TestAudience"},
+            {"Jwt:AccessTokenExpirationMinutes", "15"},
+            {"Jwt:RefreshTokenExpirationDays", "7"}
+        };
+
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(inMemorySettings!)
+            .Build();
+
+        // Setup services
+        var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+        _logger = loggerFactory.CreateLogger<AuthController>();
+        
+        _passwordHasher = new Argon2PasswordHasher();
+        _tokenService = new TokenService(configuration);
+        _mfaService = new MFAService(_context, _passwordHasher);
+
+        // Setup controller
+        _controller = new AuthController(
+            _context,
+            _passwordHasher,
+            _tokenService,
+            _mfaService,
+            _logger);
+
+        // Seed test data
+        SeedTestData();
+    }
+
+    private void SeedTestData()
+    {
+        var salt = new byte[32];
+        new Random().NextBytes(salt);
+
+        var user = new AuthService.Data.User
+        {
+            Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            Username = "testuser",
+            Email = "test@example.com",
+            PasswordHash = _passwordHasher.HashPassword("TestPassword123!"),
+            MasterKeySalt = salt,
+            EmailVerified = true,
+            MfaEnabled = false,
+            IsActive = true,
+            AccountStatus = "active",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(user);
+        _context.SaveChanges();
+    }
+
+    // ========================================
+    // REGISTRATION TESTS
+    // ========================================
+
     [Fact]
     public async Task Register_ValidInput_ReturnsSuccess()
     {
-        // PSEUDO: Arrange - Create mock repositories
-        // PSEUDO: Act - Call RegisterUser
-        // PSEUDO: Assert - Verify user created, salt generated
-        
-        Assert.True(false, "NOT IMPLEMENTED - Sprint 2");
+        // Arrange
+        var request = new RegisterRequest(
+            "newuser",
+            "newuser@example.com",
+            "SecurePassword123!"
+        );
+
+        // Act
+        var result = await _controller.Register(request);
+
+        // Assert
+        var createdResult = Assert.IsType<CreatedAtActionResult>(result);
+        Assert.NotNull(createdResult.Value);
+
+        // Verify user in database
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == "newuser");
+        Assert.NotNull(user);
+        Assert.Equal("newuser@example.com", user.Email);
+        Assert.NotEmpty(user.PasswordHash);
+        Assert.NotEmpty(user.MasterKeySalt);
     }
-    
+
     [Fact]
-    public async Task Register_DuplicateUsername_ThrowsException()
+    public async Task Register_DuplicateUsername_ReturnsConflict()
     {
-        // PSEUDO: Arrange - Mock repository with existing user
-        // PSEUDO: Act & Assert - Expect ConflictException
-        
-        Assert.True(false, "NOT IMPLEMENTED - Sprint 2");
+        // Arrange
+        var request = new RegisterRequest(
+            "testuser",
+            "another@example.com",
+            "Password123!"
+        );
+
+        // Act
+        var result = await _controller.Register(request);
+
+        // Assert
+        var conflictResult = Assert.IsType<ConflictObjectResult>(result);
+        Assert.NotNull(conflictResult.Value);
     }
-    
+
+    [Fact]
+    public async Task Register_DuplicateEmail_ReturnsConflict()
+    {
+        // Arrange
+        var request = new RegisterRequest(
+            "anotheruser",
+            "test@example.com",
+            "Password123!"
+        );
+
+        // Act
+        var result = await _controller.Register(request);
+
+        // Assert
+        var conflictResult = Assert.IsType<ConflictObjectResult>(result);
+        Assert.NotNull(conflictResult.Value);
+    }
+
+    [Fact]
+    public async Task Register_WeakPassword_ReturnsBadRequest()
+    {
+        // Arrange
+        var request = new RegisterRequest(
+            "newuser2",
+            "newuser2@example.com",
+            "weak"
+        );
+
+        // Act
+        var result = await _controller.Register(request);
+
+        // Assert
+        var badRequestResult = Assert.IsType<BadRequestObjectResult>(result);
+        Assert.NotNull(badRequestResult.Value);
+    }
+
+    // ========================================
+    // LOGIN TESTS
+    // ========================================
+
     [Fact]
     public async Task Login_ValidCredentials_ReturnsJwtToken()
     {
-        // PSEUDO: Arrange - Mock user with hashed password
-        // PSEUDO: Act - Call Login
-        // PSEUDO: Assert - JWT token returned, not null
+        // Arrange
+        var request = new LoginRequest(
+            "testuser",
+            "TestPassword123!"
+        );
+
+        // Act
+        var result = await _controller.Login(request);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        Assert.NotNull(okResult.Value);
         
-        Assert.True(false, "NOT IMPLEMENTED - Sprint 2");
+        var loginResponse = Assert.IsType<LoginResponse>(okResult.Value);
+        Assert.NotEmpty(loginResponse.AccessToken);
+        Assert.NotEmpty(loginResponse.RefreshToken);
     }
-    
+
     [Fact]
     public async Task Login_InvalidPassword_ReturnsUnauthorized()
     {
-        // PSEUDO: Arrange - Mock user
-        // PSEUDO: Act - Login with wrong password
-        // PSEUDO: Assert - Unauthorized exception
+        // Arrange
+        var request = new LoginRequest(
+            "testuser",
+            "WrongPassword123!"
+        );
+
+        // Act
+        var result = await _controller.Login(request);
+
+        // Assert
+        Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Login_NonExistentUser_ReturnsUnauthorized()
+    {
+        // Arrange
+        var request = new LoginRequest(
+            "nonexistent",
+            "Password123!"
+        );
+
+        // Act
+        var result = await _controller.Login(request);
+
+        // Assert
+        Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    [Fact]
+    public async Task Login_InactiveUser_ReturnsLocked()
+    {
+        // Arrange - Create inactive user
+        var inactiveUser = new AuthService.Data.User
+        {
+            Id = Guid.NewGuid(),
+            Username = "inactive",
+            Email = "inactive@example.com",
+            PasswordHash = _passwordHasher.HashPassword("Password123!"),
+            MasterKeySalt = new byte[32],
+            IsActive = false,
+            AccountStatus = "suspended",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(inactiveUser);
+        await _context.SaveChangesAsync();
+
+        var request = new LoginRequest(
+            "inactive",
+            "Password123!"
+        );
+
+        // Act
+        var result = await _controller.Login(request);
+
+        // Assert
+        var statusCodeResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(423, statusCodeResult.StatusCode);
+    }
+
+    // ========================================
+    // PASSWORD HASHING TESTS
+    // ========================================
+
+    [Fact]
+    public void PasswordHasher_HashPassword_CreatesValidHash()
+    {
+        // Arrange
+        var password = "TestPassword123!";
+
+        // Act
+        var hash = _passwordHasher.HashPassword(password);
+
+        // Assert
+        Assert.NotEmpty(hash);
+        Assert.NotEqual(password, hash);
+    }
+
+    [Fact]
+    public void PasswordHasher_VerifyPassword_ValidPassword_ReturnsTrue()
+    {
+        // Arrange
+        var password = "TestPassword123!";
+        var hash = _passwordHasher.HashPassword(password);
+
+        // Act
+        var result = _passwordHasher.VerifyPassword(password, hash);
+
+        // Assert
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void PasswordHasher_VerifyPassword_InvalidPassword_ReturnsFalse()
+    {
+        // Arrange
+        var password = "TestPassword123!";
+        var wrongPassword = "WrongPassword123!";
+        var hash = _passwordHasher.HashPassword(password);
+
+        // Act
+        var result = _passwordHasher.VerifyPassword(wrongPassword, hash);
+
+        // Assert
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void PasswordHasher_SamePassword_DifferentHashes()
+    {
+        // Arrange
+        var password = "TestPassword123!";
+
+        // Act
+        var hash1 = _passwordHasher.HashPassword(password);
+        var hash2 = _passwordHasher.HashPassword(password);
+
+        // Assert - Hashes should be different due to salt
+        Assert.NotEqual(hash1, hash2);
         
-        Assert.True(false, "NOT IMPLEMENTED - Sprint 2");
+        // But both should verify correctly
+        Assert.True(_passwordHasher.VerifyPassword(password, hash1));
+        Assert.True(_passwordHasher.VerifyPassword(password, hash2));
+    }
+
+    // ========================================
+    // JWT TOKEN TESTS
+    // ========================================
+
+    [Fact]
+    public void TokenService_GenerateAccessToken_CreatesValidToken()
+    {
+        // Arrange
+        var userId = Guid.NewGuid();
+        var username = "testuser";
+        var token = _tokenService.GenerateAccessToken(userId, username, new List<string> { "user" });
+
+        // Assert
+        Assert.NotEmpty(token);
+        Assert.Contains(".", token); // JWT has dots
+    }
+
+    [Fact]
+    public void TokenService_GenerateRefreshToken_CreatesUniqueTokens()
+    {
+        // Act
+        var token1 = _tokenService.GenerateRefreshToken();
+        var token2 = _tokenService.GenerateRefreshToken();
+
+        // Assert
+        Assert.NotEmpty(token1);
+        Assert.NotEmpty(token2);
+        Assert.NotEqual(token1, token2);
+    }
+
+    // ========================================
+    // REFRESH TOKEN TESTS
+    // ========================================
+
+    [Fact]
+    public async Task Refresh_ValidToken_ReturnsNewAccessToken()
+    {
+        // Arrange - First login to get refresh token
+        var loginRequest = new LoginRequest(
+            "testuser",
+            "TestPassword123!"
+        );
+
+        var loginResult = await _controller.Login(loginRequest);
+        var loginOk = Assert.IsType<OkObjectResult>(loginResult);
+        var loginResponse = Assert.IsType<LoginResponse>(loginOk.Value);
+
+        var refreshRequest = new RefreshTokenRequest(loginResponse.RefreshToken);
+
+        // Act
+        var result = await _controller.Refresh(refreshRequest);
+
+        // Assert
+        var okResult = Assert.IsType<OkObjectResult>(result);
+        var tokenResponse = Assert.IsType<TokenResponse>(okResult.Value);
+        
+        Assert.NotEmpty(tokenResponse.AccessToken);
+        Assert.NotEmpty(tokenResponse.RefreshToken);
+    }
+
+    [Fact]
+    public async Task Refresh_InvalidToken_ReturnsUnauthorized()
+    {
+        // Arrange
+        var request = new RefreshTokenRequest("invalid-token");
+
+        // Act
+        var result = await _controller.Refresh(request);
+
+        // Assert
+        Assert.IsType<UnauthorizedObjectResult>(result);
+    }
+
+    // ========================================
+    // INTEGRATION TESTS
+    // ========================================
+
+    [Fact]
+    public async Task CompleteAuthFlow_RegisterLoginRefresh_Works()
+    {
+        // Step 1: Register
+        var registerRequest = new RegisterRequest(
+            "flowtest",
+            "flowtest@example.com",
+            "FlowTest123!"
+        );
+
+        var registerResult = await _controller.Register(registerRequest);
+        Assert.IsType<CreatedAtActionResult>(registerResult);
+
+        // Step 2: Login
+        var loginRequest = new LoginRequest(
+            "flowtest",
+            "FlowTest123!"
+        );
+
+        var loginResult = await _controller.Login(loginRequest);
+        var loginOk = Assert.IsType<OkObjectResult>(loginResult);
+        var loginResponse = Assert.IsType<LoginResponse>(loginOk.Value);
+
+        // Step 3: Refresh
+        var refreshRequest = new RefreshTokenRequest(loginResponse.RefreshToken);
+        var refreshResult = await _controller.Refresh(refreshRequest);
+        
+        Assert.IsType<OkObjectResult>(refreshResult);
+    }
+
+    public void Dispose()
+    {
+        _context.Database.EnsureDeleted();
+        _context.Dispose();
     }
 }

@@ -4,163 +4,120 @@
 // Dependencies: Sprint 2 (AuthService)
 // ========================================
 
-using Microsoft.AspNetCore.Mvc;
+using MessengerContracts.DTOs;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
+using UserService.Data;
+using UserService.Data.Entities;
 
-namespace SecureMessenger.UserService.Controllers;
+namespace UserService.Controllers;
 
-[ApiController]
-[Route("api/users")]
-[Authorize]
+[ApiController, Route("api/users"), Authorize]
 public class UsersController : ControllerBase
 {
-    // TODO-SPRINT-7: Inject IUserService, ILogger
-    
-    /// <summary>
-    /// Get current user profile
-    /// </summary>
+    private readonly UserDbContext _context;
+    private readonly ILogger<UsersController> _logger;
+
+    public UsersController(UserDbContext context, ILogger<UsersController> logger)
+    {
+        _context = context;
+        _logger = logger;
+    }
+
+    [HttpGet("{userId}")]
+    public async Task<IActionResult> GetProfile(Guid userId)
+    {
+        var p = await _context.UserProfiles.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+        if (p == null) return NotFound();
+        return Ok(new UserDto { Id = p.Id, Username = p.Username, Email = p.Email, DisplayName = p.DisplayName, AvatarUrl = p.AvatarUrl, Bio = p.Bio, EmailVerified = p.EmailVerified, CreatedAt = p.CreatedAt });
+    }
+
     [HttpGet("me")]
-    public async Task<IActionResult> GetProfile()
+    public async Task<IActionResult> GetMyProfile() => await GetProfile(GetUserId());
+
+    [HttpPut("me")]
+    public async Task<IActionResult> UpdateProfile([FromBody] MessengerContracts.DTOs.UpdateProfileRequest req)
     {
-        // PSEUDO: Get user ID from JWT token
-        // PSEUDO: Load user profile from database
-        // PSEUDO: Return UserProfileDto
-        
-        // DATA-FLOW: JWT → User ID → Database → Profile
-        
-        return Ok(new
-        {
-            id = Guid.NewGuid(),
-            username = "alice",
-            email = "alice@example.com",
-            createdAt = DateTime.UtcNow,
-            mfaEnabled = true,
-            emailVerified = true
-        });
+        var uid = GetUserId();
+        var p = await _context.UserProfiles.FirstOrDefaultAsync(u => u.Id == uid);
+        if (p == null) return NotFound();
+        if (req.DisplayName != null) p.DisplayName = req.DisplayName.Trim();
+        if (req.AvatarUrl != null) p.AvatarUrl = req.AvatarUrl.Trim();
+        if (req.Bio != null) { if (req.Bio.Length > 500) return BadRequest(); p.Bio = req.Bio.Trim(); }
+        p.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return Ok(new UserDto { Id = p.Id, Username = p.Username, Email = p.Email, DisplayName = p.DisplayName, AvatarUrl = p.AvatarUrl, Bio = p.Bio, EmailVerified = p.EmailVerified, CreatedAt = p.CreatedAt });
     }
-    
-    /// <summary>
-    /// Update user profile
-    /// </summary>
-    [HttpPatch("me")]
-    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
+
+    [HttpGet("{userId}/salt"), AllowAnonymous]
+    public async Task<IActionResult> GetSalt(Guid userId)
     {
-        // PSEUDO: Get user ID from JWT
-        // PSEUDO: Validate input (FluentValidation)
-        // PSEUDO: Check if email is unique (if changed)
-        // PSEUDO: Update user record
-        // PSEUDO: If email changed → send verification email
-        
-        return Ok(new
-        {
-            message = "Profile updated successfully",
-            emailVerificationRequired = true
-        });
+        var p = await _context.UserProfiles.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId && u.IsActive);
+        if (p == null) return NotFound();
+        return Ok(new { userId = p.Id, salt = Convert.ToBase64String(p.MasterKeySalt) });
     }
-    
-    /// <summary>
-    /// Delete account (DSGVO - 30-day grace period)
-    /// </summary>
-    [HttpDelete("me")]
-    public async Task<IActionResult> DeleteAccount([FromBody] DeleteAccountRequest request)
-    {
-        // PSEUDO: Get user ID from JWT
-        // PSEUDO: Verify password
-        // PSEUDO: Check confirmDelete = true
-        // PSEUDO: Mark account for deletion (deletion_scheduled_at = NOW() + 30 days)
-        // PSEUDO: Send confirmation email with cancellation link
-        // PSEUDO: Log deletion request (Audit)
-        
-        // SECURITY: User can cancel within 30 days
-        
-        var deletionDate = DateTime.UtcNow.AddDays(30);
-        
-        return Ok(new
-        {
-            message = "Account scheduled for deletion",
-            deletionDate = deletionDate,
-            cancellationDeadline = deletionDate
-        });
-    }
-    
-    /// <summary>
-    /// Cancel account deletion (within 30-day window)
-    /// </summary>
-    [HttpPost("me/cancel-deletion")]
-    public async Task<IActionResult> CancelDeletion()
-    {
-        // PSEUDO: Get user ID from JWT
-        // PSEUDO: Check if deletion is scheduled
-        // PSEUDO: Clear deletion_scheduled_at field
-        // PSEUDO: Send confirmation email
-        // PSEUDO: Log cancellation (Audit)
-        
-        return Ok(new { message = "Account deletion canceled" });
-    }
-    
-    /// <summary>
-    /// Export personal data (DSGVO Art. 20)
-    /// </summary>
-    [HttpPost("me/export")]
-    public async Task<IActionResult> ExportData()
-    {
-        // PSEUDO: Get user ID from JWT
-        // PSEUDO: Create background job for data export
-        // PSEUDO: Return taskId
-        
-        // BACKGROUND-JOB:
-        // 1. Collect all user data (profile, messages, contacts, settings)
-        // 2. Create ZIP file
-        // 3. Upload to CDN (with expiration)
-        // 4. Send email with download link
-        
-        return Accepted(new
-        {
-            message = "Export is being prepared",
-            taskId = Guid.NewGuid()
-        });
-    }
-    
-    /// <summary>
-    /// Get export task status
-    /// </summary>
-    [HttpGet("me/export/{taskId}")]
-    public async Task<IActionResult> GetExportStatus(Guid taskId)
-    {
-        // PSEUDO: Check background job status
-        // PSEUDO: If completed → return download URL
-        // PSEUDO: If pending → return status
-        
-        return Ok(new
-        {
-            status = "completed",
-            downloadUrl = "https://cdn.secure-messenger.com/exports/user-alice-2025-01-06.zip",
-            expiresAt = DateTime.UtcNow.AddDays(7)
-        });
-    }
-    
-    /// <summary>
-    /// Search users by username
-    /// </summary>
+
     [HttpGet("search")]
-    public async Task<IActionResult> SearchUsers([FromQuery] string query, [FromQuery] int limit = 20)
+    public async Task<IActionResult> Search([FromQuery] string q, [FromQuery] int limit = 10)
     {
-        // PSEUDO: Validate query length (min 3 chars)
-        // PSEUDO: Search users by username (LIKE query%)
-        // PSEUDO: Exclude current user from results
-        // PSEUDO: Limit results
-        
-        // SECURITY: Rate limit this endpoint (prevent user enumeration)
-        
-        return Ok(new
-        {
-            users = new[]
-            {
-                new { userId = Guid.NewGuid(), username = "alice", isOnline = true },
-                new { userId = Guid.NewGuid(), username = "alice_dev", isOnline = false }
-            }
-        });
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 2) return BadRequest();
+        var uid = GetUserId();
+        if (limit > 50) limit = 50;
+        var t = q.ToLower().Trim();
+        var ps = await _context.UserProfiles.AsNoTracking().Where(u => u.IsActive && u.Id != uid && (u.Username.ToLower().Contains(t) || u.Email.ToLower().Contains(t) || (u.DisplayName != null && u.DisplayName.ToLower().Contains(t)))).Take(limit).ToListAsync();
+        var cids = await _context.Contacts.Where(c => c.UserId == uid).Select(c => c.ContactUserId).ToListAsync();
+        return Ok(ps.Select(p => new UserSearchResultDto { Id = p.Id, Username = p.Username, DisplayName = p.DisplayName, AvatarUrl = p.AvatarUrl, Bio = p.Bio, IsContact = cids.Contains(p.Id) }));
     }
+
+    [HttpPost("contacts")]
+    public async Task<IActionResult> AddContact([FromBody] MessengerContracts.DTOs.AddContactRequest req)
+    {
+        var uid = GetUserId();
+        if (req.ContactUserId == uid) return BadRequest();
+        if (await _context.Contacts.AnyAsync(c => c.UserId == uid && c.ContactUserId == req.ContactUserId)) return Conflict();
+        var c = new Contact { Id = Guid.NewGuid(), UserId = uid, ContactUserId = req.ContactUserId, Nickname = req.Nickname, AddedAt = DateTime.UtcNow };
+        _context.Contacts.Add(c);
+        await _context.SaveChangesAsync();
+        return Ok(c);
+    }
+
+    [HttpGet("contacts")]
+    public async Task<IActionResult> GetContacts()
+    {
+        var uid = GetUserId();
+        var cs = await _context.Contacts.Where(c => c.UserId == uid).ToListAsync();
+        var cids = cs.Select(c => c.ContactUserId).ToList();
+        var ps = await _context.UserProfiles.Where(u => cids.Contains(u.Id)).ToListAsync();
+        var res = cs.Select(c => { var p = ps.FirstOrDefault(x => x.Id == c.ContactUserId); return p == null ? null : new ContactDto { Id = c.Id, ContactUserId = c.ContactUserId, Username = p.Username, DisplayName = p.DisplayName, Nickname = c.Nickname, AvatarUrl = p.AvatarUrl, IsBlocked = c.IsBlocked, AddedAt = c.AddedAt }; }).Where(x => x != null).ToList();
+        return Ok(res);
+    }
+
+    [HttpDelete("contacts/{contactId}")]
+    public async Task<IActionResult> RemoveContact(Guid contactId)
+    {
+        var uid = GetUserId();
+        var c = await _context.Contacts.FirstOrDefaultAsync(x => x.Id == contactId && x.UserId == uid);
+        if (c == null) return NotFound();
+        _context.Contacts.Remove(c);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpDelete("me")]
+    public async Task<IActionResult> DeleteAccount([FromBody] MessengerContracts.DTOs.DeleteAccountRequest req)
+    {
+        var uid = GetUserId();
+        var p = await _context.UserProfiles.FirstOrDefaultAsync(u => u.Id == uid);
+        if (p == null) return NotFound();
+        p.DeleteScheduledAt = DateTime.UtcNow.AddDays(30);
+        await _context.SaveChangesAsync();
+        _logger.LogWarning("User {UserId} scheduled deletion for {Date}", uid, p.DeleteScheduledAt);
+        return Ok(new { message = "Account deletion scheduled", scheduledDate = p.DeleteScheduledAt });
+    }
+
+    private Guid GetUserId() => Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 }
 
 // ========================================

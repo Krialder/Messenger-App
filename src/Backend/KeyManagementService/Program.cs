@@ -1,51 +1,175 @@
 // ========================================
-// PSEUDO-CODE - Sprint 6: Key Management Service Program
-// Status: 🔶 Bootstrap-Konfiguration
+// Key Management Service Program
+// Status: 🚀 Production
 // ========================================
 
-using SecureMessenger.KeyManagementService.Data;
-using SecureMessenger.KeyManagementService.Services;
+using KeyManagementService.BackgroundServices;
+using KeyManagementService.Data;
+using KeyManagementService.Services;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using Serilog;
+using System.Text;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
-// PSEUDO: Add services to the container
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+// Configure Serilog
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .WriteTo.Debug()
+    .CreateLogger();
 
-// PSEUDO: Database Context
+builder.Host.UseSerilog();
+
+// Add Controllers with JSON options
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    });
+
+// Database
+string? connectionString = builder.Configuration.GetConnectionString("KeyDatabase");
 builder.Services.AddDbContext<KeyDbContext>(options =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("KeyDatabase");
     options.UseNpgsql(connectionString);
+
+    if (builder.Environment.IsDevelopment())
+    {
+        options.EnableSensitiveDataLogging();
+        options.EnableDetailedErrors();
+    }
 });
 
-// PSEUDO: Background Services
-builder.Services.AddHostedService<KeyRotationService>();
+// JWT Authentication
+string? jwtSecretKey = builder.Configuration["Jwt:SecretKey"];
+string? jwtIssuer = builder.Configuration["Jwt:Issuer"];
+string? jwtAudience = builder.Configuration["Jwt:Audience"];
 
-// PSEUDO: Business Services
-// builder.Services.AddScoped<IKeyManagementService, KeyManagementServiceImpl>();
+if (string.IsNullOrEmpty(jwtSecretKey))
+{
+    throw new InvalidOperationException("JWT SecretKey is not configured.");
+}
 
-// PSEUDO: Authentication
-// builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-//     .AddJwtBearer(options => { ... });
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecretKey)),
+            ClockSkew = TimeSpan.Zero
+        };
+    });
 
-// PSEUDO: Logging
-// builder.Services.AddSerilog();
+builder.Services.AddAuthorization();
 
-var app = builder.Build();
+// Services
+builder.Services.AddScoped<IKeyRotationService, KeyRotationService>();
 
-// PSEUDO: Configure the HTTP request pipeline
+// Background Services
+builder.Services.AddHostedService<KeyRotationBackgroundService>();
+
+// Health Checks
+builder.Services.AddHealthChecks()
+    .AddNpgSql(connectionString!);
+
+// Swagger
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "KeyManagementService API",
+        Version = "v1",
+        Description = "Manages cryptographic keys for end-to-end encryption"
+    });
+
+    // JWT Bearer Authentication
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+// CORS (for frontend)
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.WithOrigins(
+                "http://localhost:3000",
+                "https://localhost:7001",
+                "https://localhost:7002")
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials();
+    });
+});
+
+WebApplication app = builder.Build();
+
+// Configure HTTP request pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "KeyManagementService API v1");
+    });
 }
 
+app.UseSerilogRequestLogging();
+
 app.UseHttpsRedirection();
+
+app.UseCors();
+
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapControllers();
 
-app.Run();
+app.MapControllers();
+app.MapHealthChecks("/health");
+
+try
+{
+    Log.Information("Starting KeyManagementService...");
+    app.Run();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "KeyManagementService terminated unexpectedly");
+}
+finally
+{
+    Log.CloseAndFlush();
+}

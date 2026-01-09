@@ -2,76 +2,176 @@ using Microsoft.AspNetCore.SignalR;
 
 namespace MessageService.Hubs
 {
+    /// <summary>
+    /// SignalR Hub for Real-time Notifications
+    /// Handles message delivery, typing indicators, online status
+    /// Supports both direct messages and group chats
+    /// </summary>
     public class NotificationHub : Hub
     {
-        // PSEUDO CODE: SignalR Hub for Real-time Notifications
-        // Handles message delivery, typing indicators, online status
+        private readonly ILogger<NotificationHub> _logger;
+
+        public NotificationHub(ILogger<NotificationHub> logger)
+        {
+            _logger = logger;
+        }
+
+        // CONNECTION LIFECYCLE
 
         public override async Task OnConnectedAsync()
         {
-            // PSEUDO CODE:
-            // 1. Get user ID from JWT claims
-            // 2. Add connection to user's group: Groups.AddToGroupAsync(connectionId, userId)
-            // 3. Update online status in Redis (SET user:{userId}:online TRUE EX 300)
-            // 4. Broadcast online status to user's contacts
-            
             var userId = Context.User?.FindFirst("sub")?.Value;
-            await Groups.AddToGroupAsync(Context.ConnectionId, userId!);
+            if (!string.IsNullOrEmpty(userId))
+            {
+                // Add connection to user's personal group
+                await Groups.AddToGroupAsync(Context.ConnectionId, userId);
+                
+                // TODO: Update online status in Redis
+                // await _presenceService.SetUserOnlineAsync(userId);
+                
+                // Broadcast online status to contacts
+                await Clients.Others.SendAsync("UserOnline", userId);
+                
+                _logger.LogInformation("User {UserId} connected: {ConnectionId}", userId, Context.ConnectionId);
+            }
             
-            await Clients.Others.SendAsync("UserOnline", userId);
             await base.OnConnectedAsync();
         }
 
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
-            // PSEUDO CODE:
-            // 1. Get user ID from claims
-            // 2. Remove from group
-            // 3. Update Redis: DEL user:{userId}:online
-            // 4. Broadcast offline status
-            
             var userId = Context.User?.FindFirst("sub")?.Value;
-            await Clients.Others.SendAsync("UserOffline", userId);
+            if (!string.IsNullOrEmpty(userId))
+            {
+                // TODO: Update offline status in Redis
+                // await _presenceService.SetUserOfflineAsync(userId);
+                
+                // Broadcast offline status
+                await Clients.Others.SendAsync("UserOffline", userId);
+                
+                _logger.LogInformation("User {UserId} disconnected: {ConnectionId}", userId, Context.ConnectionId);
+            }
             
             await base.OnDisconnectedAsync(exception);
         }
 
+        // TYPING INDICATORS
+
+        /// <summary>
+        /// Send typing indicator to a specific user (1-to-1 chat)
+        /// </summary>
         public async Task SendTypingIndicator(string recipientId)
         {
-            // PSEUDO CODE:
-            // 1. Get sender ID from claims
-            // 2. Send typing indicator to specific recipient
-            //    - Throttled: max 1 per 3 seconds
-            // 3. Auto-expire after 5 seconds
-            
-            await Clients.Group(recipientId).SendAsync("TypingIndicator", Context.User?.FindFirst("sub")?.Value);
+            var senderId = Context.User?.FindFirst("sub")?.Value;
+            if (string.IsNullOrEmpty(senderId)) return;
+
+            await Clients.User(recipientId).SendAsync("TypingIndicator", senderId);
+        }
+
+        /// <summary>
+        /// Send typing indicator to a group conversation
+        /// </summary>
+        public async Task SendGroupTypingIndicator(string conversationId)
+        {
+            var senderId = Context.User?.FindFirst("sub")?.Value;
+            if (string.IsNullOrEmpty(senderId)) return;
+
+            // Broadcast to all members in the conversation group (except sender)
+            await Clients.GroupExcept($"conversation_{conversationId}", Context.ConnectionId)
+                .SendAsync("GroupTypingIndicator", conversationId, senderId);
         }
 
         public async Task StopTypingIndicator(string recipientId)
         {
-            // PSEUDO CODE:
-            // 1. Send stop typing event to recipient
-            
-            await Clients.Group(recipientId).SendAsync("StopTyping", Context.User?.FindFirst("sub")?.Value);
+            var senderId = Context.User?.FindFirst("sub")?.Value;
+            if (string.IsNullOrEmpty(senderId)) return;
+
+            await Clients.User(recipientId).SendAsync("StopTyping", senderId);
         }
 
-        // Called by MessageService when new message arrives
+        // MESSAGING EVENTS
+
+        /// <summary>
+        /// Notify a single recipient of a new message (1-to-1)
+        /// </summary>
         public async Task NotifyNewMessage(string recipientId, object messageData)
         {
-            // PSEUDO CODE:
-            // 1. Send push notification to recipient's active connections
-            // 2. Client will decrypt message locally
-            
-            await Clients.Group(recipientId).SendAsync("NewMessage", messageData);
+            await Clients.User(recipientId).SendAsync("NewMessage", messageData);
+            _logger.LogDebug("Notified user {RecipientId} of new message", recipientId);
         }
 
+        /// <summary>
+        /// Notify all members of a group conversation about a new message
+        /// </summary>
+        public async Task NotifyGroupMessage(List<string> memberIds, object messageData)
+        {
+            foreach (var memberId in memberIds)
+            {
+                await Clients.User(memberId).SendAsync("NewMessage", messageData);
+            }
+            
+            _logger.LogDebug("Notified {MemberCount} group members of new message", memberIds.Count);
+        }
+
+        /// <summary>
+        /// Notify message sender that their message was read
+        /// </summary>
         public async Task NotifyMessageRead(string senderId, string messageId)
         {
-            // PSEUDO CODE:
-            // 1. Notify sender that their message was read
-            // 2. Update UI to show double checkmark
+            await Clients.User(senderId).SendAsync("MessageRead", messageId);
+        }
+
+        // GROUP MANAGEMENT EVENTS
+
+        /// <summary>
+        /// Join a conversation group (subscribe to real-time updates)
+        /// </summary>
+        public async Task JoinConversationGroup(string conversationId)
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, $"conversation_{conversationId}");
             
-            await Clients.Group(senderId).SendAsync("MessageRead", messageId);
+            var userId = Context.User?.FindFirst("sub")?.Value;
+            _logger.LogInformation("User {UserId} joined conversation group {ConversationId}", 
+                userId, conversationId);
+        }
+
+        /// <summary>
+        /// Leave a conversation group
+        /// </summary>
+        public async Task LeaveConversationGroup(string conversationId)
+        {
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"conversation_{conversationId}");
+            
+            var userId = Context.User?.FindFirst("sub")?.Value;
+            _logger.LogInformation("User {UserId} left conversation group {ConversationId}", 
+                userId, conversationId);
+        }
+
+        /// <summary>
+        /// Notify group members that someone joined
+        /// </summary>
+        public async Task NotifyMemberJoined(string conversationId, string newMemberId, string memberName)
+        {
+            await Clients.Group($"conversation_{conversationId}")
+                .SendAsync("MemberJoined", conversationId, newMemberId, memberName);
+        }
+
+        /// <summary>
+        /// Notify group members that someone left
+        /// </summary>
+        public async Task NotifyMemberLeft(string conversationId, string memberId, string memberName)
+        {
+            await Clients.Group($"conversation_{conversationId}")
+                .SendAsync("MemberLeft", conversationId, memberId, memberName);
+        }
+
+        /// <summary>
+        /// Notify group members of settings changes (name, description, etc.)
+        /// </summary>
+        public async Task NotifyGroupUpdated(string conversationId, object updatedData)
+        {
+            await Clients.Group($"conversation_{conversationId}")
+                .SendAsync("GroupUpdated", conversationId, updatedData);
         }
     }
 }

@@ -1,116 +1,133 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
-using MessengerCommon.Constants;
+using System.Security.Claims;
 
-namespace NotificationService.Hubs
+namespace NotificationService.Hubs;
+
+/// <summary>
+/// SignalR Hub for real-time notifications.
+/// Handles: Message notifications, typing indicators, presence management, group events.
+/// </summary>
+[Authorize]
+public class NotificationHub : Hub
 {
-    /// <summary>
-    /// SignalR Hub for real-time notifications
-    /// Handles: MessageReceived, MessageRead, TypingIndicators, PresenceManagement
-    /// </summary>
-    public class NotificationHub : Hub
+    private readonly ILogger<NotificationHub> _logger;
+
+    public NotificationHub(ILogger<NotificationHub> logger)
     {
-        private readonly IPresenceService _presenceService;
-        private readonly ILogger<NotificationHub> _logger;
+        _logger = logger;
+    }
 
-        public NotificationHub(IPresenceService presenceService, ILogger<NotificationHub> logger)
+    // CONNECTION LIFECYCLE
+
+    public override async Task OnConnectedAsync()
+    {
+        string? userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (!string.IsNullOrEmpty(userId))
         {
-            _presenceService = presenceService;
-            _logger = logger;
+            _logger.LogInformation("User {UserId} connected to NotificationHub", userId);
+
+            // Notify others that user is online
+            await Clients.Others.SendAsync("UserOnline", new { userId, timestamp = DateTime.UtcNow });
         }
 
-        // CONNECTION LIFECYCLE
-        
-        public override async Task OnConnectedAsync()
+        await base.OnConnectedAsync();
+    }
+
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        string? userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (!string.IsNullOrEmpty(userId))
         {
-            var userId = Context.User?.Identity?.Name;
-            if (!string.IsNullOrEmpty(userId))
-            {
-                await _presenceService.SetUserOnlineAsync(userId);
-                await Clients.Others.SendAsync(SignalREvents.USER_ONLINE, userId);
-                _logger.LogInformation("User {UserId} connected", userId);
-            }
-            
-            await base.OnConnectedAsync();
+            _logger.LogInformation("User {UserId} disconnected from NotificationHub", userId);
+
+            // Notify others that user is offline
+            await Clients.Others.SendAsync("UserOffline", new { userId, timestamp = DateTime.UtcNow });
         }
 
-        public override async Task OnDisconnectedAsync(Exception? exception)
-        {
-            var userId = Context.User?.Identity?.Name;
-            if (!string.IsNullOrEmpty(userId))
-            {
-                await _presenceService.SetUserOfflineAsync(userId);
-                await Clients.Others.SendAsync(SignalREvents.USER_OFFLINE, userId);
-                _logger.LogInformation("User {UserId} disconnected", userId);
-            }
-            
-            await base.OnDisconnectedAsync(exception);
-        }
+        await base.OnDisconnectedAsync(exception);
+    }
 
-        // MESSAGING EVENTS
+    // GROUP MANAGEMENT
 
-        /// <summary>
-        /// Notify recipient that a new message was received
-        /// </summary>
-        public async Task NotifyMessageReceived(string recipientId, object message)
-        {
-            await Clients.User(recipientId).SendAsync(SignalREvents.MESSAGE_RECEIVED, message);
-            _logger.LogDebug("Notified user {RecipientId} of new message", recipientId);
-        }
+    /// <summary>
+    /// Join a conversation group (for group chats).
+    /// </summary>
+    public async Task JoinConversation(string conversationId)
+    {
+        string? userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
-        /// <summary>
-        /// Notify sender that message was read
-        /// </summary>
-        public async Task NotifyMessageRead(string senderId, Guid messageId)
-        {
-            await Clients.User(senderId).SendAsync(SignalREvents.MESSAGE_READ, messageId);
-            _logger.LogDebug("Notified user {SenderId} that message {MessageId} was read", senderId, messageId);
-        }
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"conversation_{conversationId}");
 
-        // TYPING INDICATORS
+        _logger.LogDebug("User {UserId} joined conversation {ConversationId}", userId, conversationId);
 
-        /// <summary>
-        /// Notify that user started typing
-        /// </summary>
-        public async Task NotifyTypingStarted(string recipientId)
-        {
-            var userId = Context.User?.Identity?.Name;
-            if (!string.IsNullOrEmpty(userId))
-            {
-                await Clients.User(recipientId).SendAsync(SignalREvents.TYPING_STARTED, userId);
-            }
-        }
-
-        /// <summary>
-        /// Notify that user stopped typing
-        /// </summary>
-        public async Task NotifyTypingStopped(string recipientId)
-        {
-            var userId = Context.User?.Identity?.Name;
-            if (!string.IsNullOrEmpty(userId))
-            {
-                await Clients.User(recipientId).SendAsync(SignalREvents.TYPING_STOPPED, userId);
-            }
-        }
-
-        // PRESENCE MANAGEMENT
-
-        /// <summary>
-        /// Get online status of users
-        /// </summary>
-        public async Task<Dictionary<string, bool>> GetOnlineStatus(List<string> userIds)
-        {
-            return await _presenceService.GetOnlineStatusAsync(userIds);
-        }
+        // Notify group members
+        await Clients.Group($"conversation_{conversationId}")
+            .SendAsync("UserJoinedConversation", new { userId, conversationId });
     }
 
     /// <summary>
-    /// Interface for presence management service
+    /// Leave a conversation group.
     /// </summary>
-    public interface IPresenceService
+    public async Task LeaveConversation(string conversationId)
     {
-        Task SetUserOnlineAsync(string userId);
-        Task SetUserOfflineAsync(string userId);
-        Task<bool> IsUserOnlineAsync(string userId);
-        Task<Dictionary<string, bool>> GetOnlineStatusAsync(List<string> userIds);
+        string? userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"conversation_{conversationId}");
+
+        _logger.LogDebug("User {UserId} left conversation {ConversationId}", userId, conversationId);
+
+        // Notify group members
+        await Clients.Group($"conversation_{conversationId}")
+            .SendAsync("UserLeftConversation", new { userId, conversationId });
+    }
+
+    // TYPING INDICATORS
+
+    /// <summary>
+    /// Notify conversation members that user is typing.
+    /// </summary>
+    public async Task NotifyTyping(string conversationId, bool isTyping)
+    {
+        string? userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (string.IsNullOrEmpty(userId)) return;
+
+        // Notify all group members except sender
+        await Clients.OthersInGroup($"conversation_{conversationId}")
+            .SendAsync("UserTyping", new { userId, conversationId, isTyping, timestamp = DateTime.UtcNow });
+
+        _logger.LogDebug("User {UserId} typing status: {IsTyping} in conversation {ConversationId}",
+            userId, isTyping, conversationId);
+    }
+
+    // MESSAGE DELIVERY CONFIRMATION
+
+    /// <summary>
+    /// Confirm message delivery.
+    /// </summary>
+    public async Task ConfirmMessageDelivery(string messageId)
+    {
+        string? userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        _logger.LogDebug("User {UserId} confirmed delivery of message {MessageId}", userId, messageId);
+
+        // This could trigger a MessageDeliveredEvent to RabbitMQ
+        // For now, just log
+    }
+
+    /// <summary>
+    /// Confirm message read.
+    /// </summary>
+    public async Task ConfirmMessageRead(string messageId)
+    {
+        string? userId = Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        _logger.LogDebug("User {UserId} confirmed reading message {MessageId}", userId, messageId);
+
+        // This could trigger a MessageReadEvent to RabbitMQ
+        // For now, just log
     }
 }

@@ -1,103 +1,266 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using AuthService.Data;
+using MessengerContracts.DTOs;
+using MessengerContracts.Interfaces;
 
-namespace AuthService.Controllers
+namespace AuthService.Controllers;
+
+/// <summary>
+/// Multi-Factor Authentication management controller
+/// </summary>
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class MFAController : ControllerBase
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    [Authorize]
-    public class MFAController : ControllerBase
+    private readonly AuthDbContext _context;
+    private readonly IMfaService _mfaService;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly ILogger<MFAController> _logger;
+
+    public MFAController(
+        AuthDbContext context,
+        IMfaService mfaService,
+        IPasswordHasher passwordHasher,
+        ILogger<MFAController> logger)
     {
-        // PSEUDO CODE: Multi-Factor Authentication Management
-        
-        [HttpPost("enable-totp")]
-        public async Task<IActionResult> EnableTOTP()
-        {
-            // PSEUDO CODE:
-            // 1. Get current user from JWT
-            // 2. Generate random TOTP secret (160 bits, Base32 encoded)
-            // 3. Create provisioning URI: otpauth://totp/MessengerApp:username?secret=XXX&issuer=MessengerApp
-            // 4. Generate QR code from URI
-            // 5. Store totp_secret in mfa_methods (temporarily unverified)
-            // 6. Return QR code + manual entry code
-            
-            return Ok(new { 
-                qr_code = "base64_qr_image", 
-                secret = "BASE32SECRET",
-                backup_codes = new string[] { "XXXX-XXXX-XXXX-XXXX" }
-            });
-        }
+        _context = context;
+        _mfaService = mfaService;
+        _passwordHasher = passwordHasher;
+        _logger = logger;
+    }
 
-        [HttpPost("verify-totp")]
-        public async Task<IActionResult> VerifyTOTP([FromBody] VerifyTOTPRequest request)
+    /// <summary>
+    /// Enable TOTP (Authenticator App) MFA - Step 1: Generate secret and QR code
+    /// </summary>
+    [HttpPost("enable-totp")]
+    [ProducesResponseType(typeof(EnableTotpResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> EnableTotp()
+    {
+        try
         {
-            // PSEUDO CODE:
-            // 1. Get user's pending TOTP secret
-            // 2. Verify provided 6-digit code
-            // 3. If valid:
-            //    - Mark mfa_method as verified
-            //    - Set users.mfa_enabled = TRUE
-            //    - Generate 10 recovery codes
-            //    - Log in audit_log
-            // 4. Return recovery codes (show only once!)
-            
-            return Ok(new { success = true, recovery_codes = new string[] { "CODE1", "CODE2" } });
-        }
+            var userId = GetCurrentUserId();
+            var user = await _context.Users.FindAsync(userId);
+            if (user == null)
+                return Unauthorized("User not found");
 
-        [HttpPost("enable-yubikey")]
-        public async Task<IActionResult> EnableYubiKey([FromBody] YubiKeyRequest request)
-        {
-            // PSEUDO CODE:
-            // 1. Get YubiKey public ID from request
-            // 2. Perform challenge-response test
-            // 3. Store yubikey_public_id and credential_id
-            // 4. Set as backup method for master key derivation
-            // 5. Return success
-            
-            return Ok(new { success = true });
-        }
+            // Generate TOTP secret and QR code
+            var (secret, qrCodeBase64) = await _mfaService.GenerateTotpSecretAsync(user.Username);
+            var qrCodeUrl = $"data:image/png;base64,{qrCodeBase64}";
 
-        [HttpGet("methods")]
-        public async Task<IActionResult> GetMFAMethods()
-        {
-            // PSEUDO CODE:
-            // 1. Get all MFA methods for current user
-            // 2. Return list with metadata (type, friendly_name, is_primary)
-            // 3. Hide sensitive data (secrets, keys)
-            
-            return Ok(new object[] { 
-                new { method_type = "totp", friendly_name = "Authenticator App", is_primary = true },
-                new { method_type = "yubikey", friendly_name = "YubiKey Office", is_primary = false }
-            });
-        }
+            // Generate recovery codes
+            var recoveryCodes = await _mfaService.GenerateRecoveryCodesAsync(userId);
 
-        [HttpDelete("methods/{id}")]
-        public async Task<IActionResult> RemoveMFAMethod(Guid id)
-        {
-            // PSEUDO CODE:
-            // 1. Check if user has more than 1 MFA method
-            // 2. If last method: return error (must keep at least 1)
-            // 3. Delete mfa_method
-            // 4. If no methods left: set users.mfa_enabled = FALSE
-            // 5. Log in audit_log
-            
-            return NoContent();
-        }
+            _logger.LogInformation("TOTP setup initiated for user {UserId}", userId);
 
-        [HttpPost("generate-recovery-codes")]
-        public async Task<IActionResult> RegenerateRecoveryCodes()
+            return Ok(new EnableTotpResponse(
+                secret,
+                qrCodeUrl,
+                recoveryCodes
+            ));
+        }
+        catch (Exception ex)
         {
-            // PSEUDO CODE:
-            // 1. Invalidate all existing recovery codes
-            // 2. Generate 10 new random codes (16 chars each)
-            // 3. Hash with Argon2id
-            // 4. Store in recovery_codes table
-            // 5. Return codes (show only once!)
-            
-            return Ok(new { recovery_codes = new string[] { "CODE1", "CODE2", "CODE3" } });
+            _logger.LogError(ex, "Error enabling TOTP");
+            return StatusCode(500, "An error occurred while enabling TOTP");
         }
     }
 
-    public record VerifyTOTPRequest(string Code);
-    public record YubiKeyRequest(string PublicId, byte[] CredentialId);
+    /// <summary>
+    /// Enable TOTP (Authenticator App) MFA - Step 2: Verify setup with code
+    /// </summary>
+    [HttpPost("verify-totp-setup")]
+    [ProducesResponseType(typeof(MfaMethodDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> VerifyTotpSetup([FromBody] VerifyTotpSetupRequest request)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var user = await _context.Users
+                .Include(u => u.MfaMethods)
+                .FirstOrDefaultAsync(u => u.Id == userId);
+
+            if (user == null)
+                return Unauthorized("User not found");
+
+            // Validate TOTP code
+            var isValid = _mfaService.ValidateTotpCode(request.Secret, request.Code);
+            if (!isValid)
+            {
+                _logger.LogWarning("Invalid TOTP code during setup for user {UserId}", userId);
+                return BadRequest("Invalid TOTP code. Please try again.");
+            }
+
+            // Check if user already has a primary TOTP method
+            var existingPrimary = user.MfaMethods.FirstOrDefault(m => m.IsPrimary && m.IsActive);
+            bool isPrimary = existingPrimary == null;
+
+            // Create MFA method entry
+            var mfaMethod = new AuthService.Data.MfaMethod
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                MethodType = "totp",
+                TotpSecret = request.Secret,
+                IsPrimary = isPrimary,
+                IsActive = true,
+                FriendlyName = request.FriendlyName ?? "Authenticator App",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.MfaMethods.Add(mfaMethod);
+
+            // Enable MFA for user
+            user.MfaEnabled = true;
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("TOTP MFA enabled successfully for user {UserId}", userId);
+
+            return Ok(new MfaMethodDto
+            {
+                Id = mfaMethod.Id,
+                MethodType = mfaMethod.MethodType,
+                FriendlyName = mfaMethod.FriendlyName!,
+                IsPrimary = mfaMethod.IsPrimary,
+                IsEnabled = mfaMethod.IsActive,
+                CreatedAt = mfaMethod.CreatedAt,
+                LastUsedAt = mfaMethod.LastUsedAt
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error verifying TOTP setup");
+            return StatusCode(500, "An error occurred while verifying TOTP setup");
+        }
+    }
+
+    /// <summary>
+    /// Get all active MFA methods for current user
+    /// </summary>
+    [HttpGet("methods")]
+    [ProducesResponseType(typeof(List<MfaMethodDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetMethods()
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+
+            var methods = await _context.MfaMethods
+                .Where(m => m.UserId == userId && m.IsActive)
+                .Select(m => new MfaMethodDto
+                {
+                    Id = m.Id,
+                    MethodType = m.MethodType,
+                    FriendlyName = m.FriendlyName ?? m.MethodType.ToUpper(),
+                    IsPrimary = m.IsPrimary,
+                    IsEnabled = m.IsActive,
+                    CreatedAt = m.CreatedAt,
+                    LastUsedAt = m.LastUsedAt
+                })
+                .ToListAsync();
+
+            return Ok(methods);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching MFA methods");
+            return StatusCode(500, "An error occurred while fetching MFA methods");
+        }
+    }
+
+    /// <summary>
+    /// Disable/delete an MFA method
+    /// </summary>
+    [HttpDelete("methods/{methodId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> DeleteMethod(Guid methodId, [FromBody] DisableMfaRequest request)
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+            var user = await _context.Users
+                .Include(u => u.MfaMethods.Where(m => m.IsActive))
+                .FirstOrDefaultAsync(u => u.Id == userId);
+
+            if (user == null)
+                return Unauthorized("User not found");
+
+            // Verify password
+            if (!_passwordHasher.VerifyPassword(request.Password, user.PasswordHash))
+            {
+                _logger.LogWarning("Invalid password during MFA method deletion for user {UserId}", userId);
+                return Unauthorized("Invalid password");
+            }
+
+            var mfaMethod = user.MfaMethods.FirstOrDefault(m => m.Id == methodId);
+            if (mfaMethod == null)
+                return NotFound("MFA method not found");
+
+            // Check if this is the last active method
+            if (user.MfaMethods.Count == 1)
+            {
+                return BadRequest("Cannot delete the last MFA method. Disable MFA first if you want to remove all methods.");
+            }
+
+            // Disable the method
+            mfaMethod.IsActive = false;
+
+            // If this was the primary method, promote another to primary
+            if (mfaMethod.IsPrimary)
+            {
+                var nextMethod = user.MfaMethods.FirstOrDefault(m => m.Id != methodId);
+                if (nextMethod != null)
+                {
+                    nextMethod.IsPrimary = true;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("MFA method {MethodId} disabled for user {UserId}", methodId, userId);
+
+            return NoContent();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting MFA method");
+            return StatusCode(500, "An error occurred while deleting MFA method");
+        }
+    }
+
+    /// <summary>
+    /// Generate new recovery codes (invalidates old ones)
+    /// </summary>
+    [HttpPost("generate-recovery-codes")]
+    [ProducesResponseType(typeof(RecoveryCodesResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GenerateRecoveryCodes()
+    {
+        try
+        {
+            var userId = GetCurrentUserId();
+
+            // Generate new recovery codes (old ones are automatically deleted by the service)
+            var newCodes = await _mfaService.GenerateRecoveryCodesAsync(userId);
+
+            _logger.LogInformation("Recovery codes regenerated for user {UserId}", userId);
+
+            return Ok(new RecoveryCodesResponse(newCodes));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating recovery codes");
+            return StatusCode(500, "An error occurred while generating recovery codes");
+        }
+    }
+
+    private Guid GetCurrentUserId()
+    {
+        var userIdClaim = User.FindFirst("sub")?.Value ?? User.FindFirst("userId")?.Value;
+        return Guid.Parse(userIdClaim!);
+    }
 }

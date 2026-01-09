@@ -10,6 +10,11 @@ namespace MessengerContracts.DTOs
         public Guid Id { get; set; }
         public string Username { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
+        public string? DisplayName { get; set; }
+        public string? AvatarUrl { get; set; }
+        public string? Bio { get; set; }
+        public bool EmailVerified { get; set; }
+        public bool MfaEnabled { get; set; }
         public DateTime CreatedAt { get; set; }
         public bool IsOnline { get; set; }
         public DateTime? LastSeen { get; set; }

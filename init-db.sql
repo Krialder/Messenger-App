@@ -85,54 +85,62 @@ COMMENT ON TABLE refresh_tokens IS 'JWT Refresh Tokens für Session Management';
 COMMENT ON COLUMN users.master_key_salt IS 'Salt für Layer 2 Master Key Derivation (Argon2id)';
 
 -- =============================================================================
--- MESSENGER_MESSAGES DATABASE
+-- MESSENGER_MESSAGES DATABASE (WITH GROUP CHAT SUPPORT)
 -- =============================================================================
 CREATE DATABASE messenger_messages;
 \c messenger_messages;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Messages Table (Partitioniert nach Monat)
+-- Conversations Table (NEW - Replaces direct messages)
+CREATE TABLE IF NOT EXISTS conversations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    type INTEGER NOT NULL DEFAULT 0,  -- 0 = DirectMessage, 1 = Group
+    name VARCHAR(100),  -- null for direct messages
+    description VARCHAR(500),
+    avatar_url VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    created_by UUID NOT NULL,
+    updated_at TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    CONSTRAINT chk_conversation_type CHECK (type IN (0, 1))
+);
+
+-- Conversation Members Table (NEW)
+CREATE TABLE IF NOT EXISTS conversation_members (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
+    role INTEGER NOT NULL DEFAULT 0,  -- 0 = Member, 1 = Admin, 2 = Owner
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    left_at TIMESTAMP,
+    nickname VARCHAR(100),
+    notifications_enabled BOOLEAN DEFAULT TRUE,
+    last_read_at TIMESTAMP,
+    CONSTRAINT chk_member_role CHECK (role IN (0, 1, 2))
+);
+
+-- Messages Table (UPDATED - Now references conversations)
 CREATE TABLE IF NOT EXISTS messages (
     id UUID DEFAULT uuid_generate_v4(),
+    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     sender_id UUID NOT NULL,
-    recipient_id UUID NOT NULL,
     encrypted_content BYTEA NOT NULL,
     nonce BYTEA NOT NULL,
-    ephemeral_public_key BYTEA NOT NULL,
+    ephemeral_public_key BYTEA,
+    encrypted_group_keys JSONB,  -- For group messages: encrypted keys per member
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    read_at TIMESTAMP,
-    deleted_by_sender BOOLEAN DEFAULT FALSE,
-    deleted_by_recipient BOOLEAN DEFAULT FALSE,
+    status INTEGER DEFAULT 0,  -- 0 = Sent, 1 = Delivered, 2 = Read
+    is_deleted BOOLEAN DEFAULT FALSE,
     deleted_at TIMESTAMP,
-    PRIMARY KEY (id, created_at)
+    message_type INTEGER DEFAULT 0,  -- 0 = Text, 1 = Image, 2 = File, etc.
+    reply_to_message_id UUID,
+    PRIMARY KEY (id, created_at),
+    CONSTRAINT chk_message_status CHECK (status IN (0, 1, 2)),
+    CONSTRAINT chk_message_type CHECK (message_type IN (0, 1, 2, 3, 4, 5))
 ) PARTITION BY RANGE (created_at);
 
--- Partitionen für 2024-2026 (automatisch erweitern via Cron/Script)
-CREATE TABLE messages_2024_01 PARTITION OF messages
-    FOR VALUES FROM ('2024-01-01') TO ('2024-02-01');
-CREATE TABLE messages_2024_02 PARTITION OF messages
-    FOR VALUES FROM ('2024-02-01') TO ('2024-03-01');
-CREATE TABLE messages_2024_03 PARTITION OF messages
-    FOR VALUES FROM ('2024-03-01') TO ('2024-04-01');
-CREATE TABLE messages_2024_04 PARTITION OF messages
-    FOR VALUES FROM ('2024-04-01') TO ('2024-05-01');
-CREATE TABLE messages_2024_05 PARTITION OF messages
-    FOR VALUES FROM ('2024-05-01') TO ('2024-06-01');
-CREATE TABLE messages_2024_06 PARTITION OF messages
-    FOR VALUES FROM ('2024-06-01') TO ('2024-07-01');
-CREATE TABLE messages_2024_07 PARTITION OF messages
-    FOR VALUES FROM ('2024-07-01') TO ('2024-08-01');
-CREATE TABLE messages_2024_08 PARTITION OF messages
-    FOR VALUES FROM ('2024-08-01') TO ('2024-09-01');
-CREATE TABLE messages_2024_09 PARTITION OF messages
-    FOR VALUES FROM ('2024-09-01') TO ('2024-10-01');
-CREATE TABLE messages_2024_10 PARTITION OF messages
-    FOR VALUES FROM ('2024-10-01') TO ('2024-11-01');
-CREATE TABLE messages_2024_11 PARTITION OF messages
-    FOR VALUES FROM ('2024-11-01') TO ('2024-12-01');
-CREATE TABLE messages_2024_12 PARTITION OF messages
-    FOR VALUES FROM ('2024-12-01') TO ('2025-01-01');
+-- Partitions for 2025-2026
 CREATE TABLE messages_2025_01 PARTITION OF messages
     FOR VALUES FROM ('2025-01-01') TO ('2025-02-01');
 CREATE TABLE messages_2025_02 PARTITION OF messages
@@ -160,13 +168,29 @@ CREATE TABLE messages_2025_12 PARTITION OF messages
 CREATE TABLE messages_2026_01 PARTITION OF messages
     FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
 
--- Indexes für messenger_messages (auf partitionierter Tabelle)
-CREATE INDEX idx_messages_sender ON messages(sender_id, created_at);
-CREATE INDEX idx_messages_recipient ON messages(recipient_id, created_at);
-CREATE INDEX idx_messages_created_at ON messages(created_at);
+-- Indexes for Conversations
+CREATE INDEX idx_conversations_created_by ON conversations(created_by);
+CREATE INDEX idx_conversations_type ON conversations(type, is_active);
+CREATE INDEX idx_conversations_created_at ON conversations(created_at);
 
-COMMENT ON TABLE messages IS 'End-to-End verschlüsselte Nachrichten mit Forward Secrecy';
-COMMENT ON COLUMN messages.ephemeral_public_key IS 'Ephemeral Public Key für Forward Secrecy';
+-- Indexes for Conversation Members
+CREATE INDEX idx_conversation_members_conversation_id ON conversation_members(conversation_id);
+CREATE INDEX idx_conversation_members_user_id ON conversation_members(user_id);
+CREATE INDEX idx_conversation_members_active ON conversation_members(user_id, left_at) WHERE left_at IS NULL;
+CREATE INDEX idx_conversation_members_role ON conversation_members(conversation_id, role);
+
+-- Indexes for Messages (on partitioned table)
+CREATE INDEX idx_messages_conversation_id ON messages(conversation_id, created_at DESC);
+CREATE INDEX idx_messages_sender_id ON messages(sender_id, created_at);
+CREATE INDEX idx_messages_created_at ON messages(created_at);
+CREATE INDEX idx_messages_active ON messages(conversation_id, is_deleted) WHERE is_deleted = FALSE;
+
+-- Comments
+COMMENT ON TABLE conversations IS 'Conversations (1-to-1 direct messages and group chats)';
+COMMENT ON TABLE conversation_members IS 'Members of conversations with roles and permissions';
+COMMENT ON TABLE messages IS 'End-to-End encrypted messages supporting both direct and group conversations';
+COMMENT ON COLUMN messages.encrypted_group_keys IS 'JSONB: Encrypted group key for each member (group messages only)';
+COMMENT ON COLUMN messages.ephemeral_public_key IS 'Ephemeral Public Key for Forward Secrecy (direct messages)';
 
 -- =============================================================================
 -- MESSENGER_KEYS DATABASE
