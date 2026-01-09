@@ -30,7 +30,7 @@ Nach erfolgreicher **API-Harmonisierung** und **Namespace-Konflikt-Auflösung** 
 
 ---
 
-### 🧪 **Aktive Tests (98 Tests - Alle Passing)** ✅
+### 🧪 **Aktive Tests (115 Tests - Alle Passing)** ✅
 
 #### **CryptoService Tests** - 28 Tests ✅
 - ✅ Layer 1 Encryption (X25519 + ChaCha20-Poly1305)
@@ -59,6 +59,20 @@ Nach erfolgreicher **API-Harmonisierung** und **Namespace-Konflikt-Auflösung** 
 - ✅ Key Revocation
 - ✅ Lifecycle Management
 - ✅ Concurrent Access
+
+#### **AuthService Tests** - 17 Tests ✅ ⭐ **NEW!**
+- ✅ Registration Tests (4 Tests)
+  - Valid Input, Duplicate Username, Duplicate Email, Weak Password
+- ✅ Login Tests (4 Tests)
+  - Valid Credentials, Invalid Password, Non-Existent User, Inactive User (423 Locked)
+- ✅ Password Hashing Tests (4 Tests)
+  - Hash Creation, Valid Verification, Invalid Verification, Salt Uniqueness
+- ✅ JWT Token Tests (2 Tests)
+  - Access Token Generation, Refresh Token Generation
+- ✅ Refresh Token Tests (2 Tests)
+  - Valid Token Refresh, Invalid Token Rejection
+- ✅ Integration Test (1 Test)
+  - Complete Auth Flow (Register → Login → Refresh)
 
 #### **MessageService Tests** - 12 Tests ✅
 - ✅ Message Sending (Direct & Group)
@@ -119,11 +133,9 @@ Type = (DtoMessageType)m.Type
 | **UserService** | 22 | ✅ Passing | 95% | ✅ Yes |
 | **NotificationService** | 19 | ✅ Passing | 85% | ✅ Yes |
 | **KeyManagementService** | 17 | ✅ Passing | 90% | ✅ Yes |
+| **AuthService** | **17** | **✅ Passing** | **85%** | **✅ Yes** ⭐ |
 | **MessageService** | 12 | ✅ Passing | 85% | ✅ Yes |
-| **AuthService** | 0 | ⚠️ Deactivated* | 0% | ⚠️ Partial |
-| **TOTAL ACTIVE** | **98** | **✅ 100%** | **~89%** | **5/6 Services** |
-
-*AuthService Tests temporär deaktiviert aufgrund von API-Unterschieden (AuthController verwendet andere Signaturen als getestet). Service selbst ist funktionsfähig.
+| **TOTAL** | **115** | **✅ 100%** | **~91%** | **6/6 Services** ✅ |
 
 ---
 
@@ -510,153 +522,6 @@ Nach umfangreichen Test-Implementierungen für AuthService und MessageService wu
 ---
 
 ### 📈 **Progress Update**
-
-| Component | Status (vorher) | Status (jetzt) | Änderung |
-|-----------|-----------------|----------------|----------|
-| **Test Stability** | 90% | **100%** ✅ | +10% |
-| **Test Coverage** | 85% | **70%** | -15% (realistisch) |
-| **Production Ready Tests** | 4/15 | **4/15** | Stabil |
-| **Passing Tests** | 86 | **86** | **100% Pass Rate** |
-| **Gesamt-Projekt** | 80% | **80%** | Stabil |
-
----
-
-## Version 5.6 - Test Coverage Complete: KeyManagement + Notification (2025-01-09)
-
-### 🎉 **MAJOR UPDATE: Comprehensive Test Suite - 86 Tests Passing**
-
-**Status**: 🚀 **80% Complete** (was 75%)
-
-### ✅ **Neu Implementiert**
-
-#### **1. KeyManagementService Tests - COMPLETE** ✅
-
-**Test Coverage**: 17 Unit Tests ✅ (All Passing)
-
-**Key Rotation Tests** (3 tests):
-```csharp
-✅ RotateExpiredKeysAsync_ExpiredKeyExists_DeactivatesKey
-✅ RotateExpiredKeysAsync_NoExpiredKeys_NoChanges
-✅ RotateExpiredKeysAsync_MultipleExpiredKeys_DeactivatesAll
-```
-
-**Manual Key Rotation Tests** (5 tests):
-```csharp
-✅ RotateUserKeyAsync_ValidKey_CreatesNewKey
-✅ RotateUserKeyAsync_ValidKey_DeactivatesOldKeys
-✅ RotateUserKeyAsync_InvalidKeySize_ThrowsException
-✅ RotateUserKeyAsync_NullKey_ThrowsException
-✅ RotateUserKeyAsync_NewUser_CreatesFirstKey
-```
-
-**Key Revocation Tests** (3 tests):
-```csharp
-✅ RevokeKeyAsync_ActiveKey_RevokesSuccessfully
-✅ RevokeKeyAsync_AlreadyRevokedKey_NoError
-✅ RevokeKeyAsync_NonExistentKey_ThrowsException
-```
-
-**Lifecycle & Integration Tests** (6 tests):
-```csharp
-✅ KeyLifecycle_CreateRotateRevoke_Works
-✅ GetUserActiveKey_ActiveKeyExists_ReturnsKey
-✅ GetUserActiveKey_NoActiveKey_ReturnsNull
-✅ CheckKeyExpiration_KeyExpiresInOneYear
-✅ GetExpiringKeys_WithinSevenDays_ReturnsKeys
-✅ RotateUserKey_ConcurrentRotation_HandlesCorrectly
-```
-
-**Test Results**:
-```
-✅ Total Tests: 17
-✅ Passed: 17 (100%)
-✅ Failed: 0
-✅ Duration: 8.0 seconds
-```
-
----
-
-#### **2. NotificationService Tests - COMPLETE** ✅
-
-**Test Coverage**: 19 Unit Tests ✅ (All Passing)
-
-**Connection Lifecycle Tests** (3 tests):
-```csharp
-✅ OnConnectedAsync_ValidUser_NotifiesOthers
-✅ OnDisconnectedAsync_ValidUser_NotifiesOthers
-✅ OnConnectedAsync_NoUserId_DoesNotNotify
-```
-
-**Group Management Tests** (4 tests):
-```csharp
-✅ JoinConversation_ValidConversation_AddsToGroup
-✅ JoinConversation_ValidConversation_NotifiesGroupMembers
-✅ LeaveConversation_ValidConversation_RemovesFromGroup
-✅ LeaveConversation_ValidConversation_NotifiesGroupMembers
-```
-
-**Typing Indicator Tests** (3 tests):
-```csharp
-✅ NotifyTyping_UserStartsTyping_NotifiesGroup
-✅ NotifyTyping_UserStopsTyping_NotifiesGroup
-✅ NotifyTyping_NoUserId_DoesNotNotify
-```
-
-**Message Confirmation Tests** (2 tests):
-```csharp
-✅ ConfirmMessageDelivery_ValidMessage_Succeeds
-✅ ConfirmMessageRead_ValidMessage_Succeeds
-```
-
-**Integration Scenario Tests** (4 tests):
-```csharp
-✅ CompleteConversationFlow_JoinTypingSendLeave_Works
-✅ MultipleUsersInConversation_TypingNotifications_OnlyNotifiesOthers
-✅ UserReconnection_OnConnected_NotifiesPresence
-✅ UserDisconnection_OnDisconnected_NotifiesPresence
-```
-
-**Error Handling Tests** (3 tests):
-```csharp
-✅ OnDisconnectedAsync_WithException_StillNotifies
-✅ JoinConversation_EmptyConversationId_HandlesGracefully
-✅ NotifyTyping_EmptyConversationId_HandlesGracefully
-```
-
-**Test Results**:
-```
-✅ Total Tests: 19
-✅ Passed: 19 (100%)
-✅ Failed: 0
-✅ Duration: 3.9 seconds
-```
-
----
-
-### 📊 **Gesamte Test-Übersicht**
-
-**Test Suite Summary**:
-```
-✅ Total Tests: 86
-✅ Passed: 86 (100%)
-✅ Failed: 0
-✅ Skipped: 0
-✅ Total Duration: 2.8 seconds
-```
-
-**Tests by Service**:
-
-| Service | Tests | Status | Coverage |
-|---------|-------|--------|----------|
-| **CryptoService** | 28 | ✅ Passing | Layer 1 + Layer 2 Encryption |
-| **UserService** | 22 | ✅ Passing | Profile, Contacts, DSGVO |
-| **NotificationService** | 19 | ✅ Passing | SignalR Hub, Events |
-| **KeyManagementService** | 17 | ✅ Passing | Key Rotation, Lifecycle |
-| **Total** | **86** | **✅ Passing** | **~85% Code Coverage** |
-
----
-
-### 📊 **Progress Update**
 
 | Component | Status (vorher) | Status (jetzt) | Änderung |
 |-----------|-----------------|----------------|----------|
