@@ -3,17 +3,42 @@
 // Status: 🔶 MVVM Pattern
 // ========================================
 
+using System.Windows;
 using System.Windows.Controls;
+using MessengerClient.ViewModels;
 
-namespace SecureMessenger.Client.Views;
-
-public partial class LoginView : UserControl
+namespace MessengerClient.Views
 {
-    public LoginView()
+    public partial class LoginView : UserControl
     {
-        InitializeComponent();
-        
-        // PSEUDO: DataContext will be set by DI container
-        // DataContext = App.Current.Services.GetService<LoginViewModel>();
+        public LoginView()
+        {
+            InitializeComponent();
+            
+            PasswordBox.PasswordChanged += (s, e) =>
+            {
+                if (DataContext is LoginViewModel vm)
+                {
+                    vm.Password = PasswordBox.Password;
+                }
+            };
+            
+            DataContextChanged += (s, e) =>
+            {
+                if (DataContext is LoginViewModel viewModel)
+                {
+                    viewModel.LoginSuccessful += (sender, args) =>
+                    {
+                        Window? window = Window.GetWindow(this);
+                        if (window != null)
+                        {
+                            MainWindow mainWindow = new MainWindow();
+                            mainWindow.Show();
+                            window.Close();
+                        }
+                    };
+                }
+            };
+        }
     }
 }

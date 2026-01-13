@@ -12,6 +12,7 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+publish/
 
 # Visual Studio cache/options
 .vs/
@@ -42,7 +43,9 @@ appsettings.Development.json
 *.pfx
 *.key
 secrets.json
+.env
 *.env
+!.env.example
 
 # OS files
 .DS_Store

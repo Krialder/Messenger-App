@@ -8,17 +8,33 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container
+// ============================================
+// 1. CONTROLLERS & API CONFIGURATION
+// ============================================
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// Database
+// ============================================
+// 2. DATABASE - PostgreSQL with EF Core
+// ============================================
 builder.Services.AddDbContext<AuthDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// JWT Authentication
+// ============================================
+// 3. JWT AUTHENTICATION
+// ============================================
 var jwtSettings = builder.Configuration.GetSection("JWT");
+
+// Security: Validate JWT secret strength (minimum 256 bits)
+var jwtSecret = jwtSettings["Secret"];
+if (string.IsNullOrEmpty(jwtSecret) || Encoding.UTF8.GetBytes(jwtSecret).Length < 32)
+{
+    throw new InvalidOperationException(
+        "JWT Secret must be at least 32 characters (256 bits). " +
+        "Generate with: openssl rand -base64 64");
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -31,12 +47,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidIssuer = jwtSettings["Issuer"],
             ValidAudience = jwtSettings["Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwtSettings["Secret"]!)),
-            ClockSkew = TimeSpan.Zero
+                Encoding.UTF8.GetBytes(jwtSecret)),
+            ClockSkew = TimeSpan.Zero  // No tolerance for expired tokens
         };
     });
 
-// CORS
+// ============================================
+// 4. CORS - Cross-Origin Resource Sharing
+// ============================================
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -48,29 +66,46 @@ builder.Services.AddCors(options =>
     });
 });
 
-// Register application services
+// ============================================
+// 5. DEPENDENCY INJECTION - Application Services
+// ============================================
 builder.Services.AddScoped<IMfaService, MFAService>();
 builder.Services.AddScoped<IPasswordHasher, Argon2PasswordHasher>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 
-// Health Check
+// ============================================
+// 6. HEALTH CHECKS
+// ============================================
 builder.Services.AddHealthChecks()
     .AddNpgSql(builder.Configuration.GetConnectionString("DefaultConnection")!);
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
+// ============================================
+// MIDDLEWARE PIPELINE CONFIGURATION
+// ============================================
+
+// Development-only: Swagger UI for API documentation
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
+// Enforce HTTPS for production security
 app.UseHttpsRedirection();
+
+// Enable CORS (must be before Authentication)
 app.UseCors();
+
+// Enable authentication and authorization
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Map controller routes
 app.MapControllers();
+
+// Health check endpoint for monitoring
 app.MapHealthChecks("/health");
 
 app.Run();

@@ -14,6 +14,7 @@ namespace MessengerClient.ViewModels
         private string _messageInput = string.Empty;
         private bool _isTyping;
         private bool _privacyModeEnabled;
+        private ReactiveObject _currentViewModel;
 
         public ObservableCollection<ContactViewModel> Contacts
         {
@@ -58,6 +59,50 @@ namespace MessengerClient.ViewModels
 
         public ReactiveCommand<Unit, Unit> SendMessageCommand { get; }
         public ReactiveCommand<Unit, Unit> TogglePrivacyModeCommand { get; }
+        public ReactiveCommand<Unit, Unit> NavigateToChatCommand { get; }
+        public ReactiveCommand<Unit, Unit> NavigateToContactsCommand { get; }
+        public ReactiveCommand<Unit, Unit> NavigateToSettingsCommand { get; }
+
+        public ReactiveObject CurrentViewModel
+        {
+            get => _currentViewModel;
+            set => this.RaiseAndSetIfChanged(ref _currentViewModel, value);
+        }
+
+        public ChatViewModel ChatViewModel { get; }
+        public ContactsViewModel ContactsViewModel { get; }
+        public SettingsViewModel SettingsViewModel { get; }
+
+        public MainViewModel(
+            ChatViewModel chatViewModel,
+            ContactsViewModel contactsViewModel,
+            SettingsViewModel settingsViewModel)
+        {
+            ChatViewModel = chatViewModel;
+            ContactsViewModel = contactsViewModel;
+            SettingsViewModel = settingsViewModel;
+
+            _currentViewModel = ChatViewModel;
+
+            NavigateToChatCommand = ReactiveCommand.Create(NavigateToChat);
+            NavigateToContactsCommand = ReactiveCommand.Create(NavigateToContacts);
+            NavigateToSettingsCommand = ReactiveCommand.Create(NavigateToSettings);
+        }
+
+        public void NavigateToChat()
+        {
+            CurrentViewModel = ChatViewModel;
+        }
+
+        public void NavigateToContacts()
+        {
+            CurrentViewModel = ContactsViewModel;
+        }
+
+        public void NavigateToSettings()
+        {
+            CurrentViewModel = SettingsViewModel;
+        }
 
         public MainViewModel()
         {

@@ -6,16 +6,16 @@ services:
     image: postgres:16-alpine
     container_name: messenger_postgres
     environment:
-      POSTGRES_USER: messenger_admin
-      POSTGRES_PASSWORD: secure_password_123
-      POSTGRES_DB: messenger_db
+      POSTGRES_USER: ${POSTGRES_USER:-messenger_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_THIS_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-messenger_db}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U messenger_admin -d messenger_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-messenger_admin} -d ${POSTGRES_DB:-messenger_db}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,6 +27,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: messenger_redis
+    command: redis-server ${REDIS_PASSWORD:+--requirepass $REDIS_PASSWORD}
     ports:
       - "6379:6379"
     volumes:
@@ -45,8 +46,8 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: messenger_rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: messenger
-      RABBITMQ_DEFAULT_PASS: rabbitmq_password
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-messenger}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-CHANGE_THIS_PASSWORD}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -68,10 +69,11 @@ services:
       dockerfile: Dockerfile
     container_name: messenger_auth_service
     environment:
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_auth;Username=messenger_admin;Password=secure_password_123"
-      JWT__Secret: "YourSuperSecretJWTKeyHere_MinLength32Characters"
-      JWT__Issuer: "MessengerAuthService"
-      JWT__Audience: "MessengerClient"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_auth;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-CHANGE_THIS_PASSWORD}"
+      JWT__Secret: ${JWT_SECRET:-CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_MIN_64_CHARS}
+      JWT__Issuer: ${JWT_ISSUER:-MessengerAuthService}
+      JWT__Audience: ${JWT_AUDIENCE:-MessengerClient}
+      JWT__ExpiryMinutes: ${JWT_EXPIRY_MINUTES:-60}
     ports:
       - "5001:80"
     depends_on:
@@ -96,11 +98,11 @@ services:
       dockerfile: Dockerfile
     container_name: messenger_message_service
     environment:
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_messages;Username=messenger_admin;Password=secure_password_123"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_messages;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-CHANGE_THIS_PASSWORD}"
       RabbitMQ__Host: "rabbitmq"
-      RabbitMQ__Username: "messenger"
-      RabbitMQ__Password: "rabbitmq_password"
-      Redis__ConnectionString: "redis:6379"
+      RabbitMQ__Username: ${RABBITMQ_USER:-messenger}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-CHANGE_THIS_PASSWORD}
+      Redis__ConnectionString: "redis:6379${REDIS_PASSWORD:+,password=$REDIS_PASSWORD}"
     ports:
       - "5002:80"
     depends_on:
@@ -127,7 +129,7 @@ services:
       dockerfile: Dockerfile
     container_name: messenger_key_management_service
     environment:
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_keys;Username=messenger_admin;Password=secure_password_123"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_keys;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-CHANGE_THIS_PASSWORD}"
     ports:
       - "5003:80"
     depends_on:
@@ -150,7 +152,7 @@ services:
       dockerfile: Dockerfile
     container_name: messenger_user_service
     environment:
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_users;Username=messenger_admin;Password=secure_password_123"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_users;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-CHANGE_THIS_PASSWORD}"
     ports:
       - "5004:80"
     depends_on:
@@ -173,7 +175,7 @@ services:
       dockerfile: Dockerfile
     container_name: messenger_audit_log_service
     environment:
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_audit;Username=messenger_admin;Password=secure_password_123"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_audit;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-CHANGE_THIS_PASSWORD}"
     ports:
       - "5005:80"
     depends_on:
@@ -196,10 +198,10 @@ services:
       dockerfile: Dockerfile
     container_name: messenger_notification_service
     environment:
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_notifications;Username=messenger_admin;Password=secure_password_123"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_notifications;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-CHANGE_THIS_PASSWORD}"
       RabbitMQ__Host: "rabbitmq"
-      RabbitMQ__Username: "messenger"
-      RabbitMQ__Password: "rabbitmq_password"
+      RabbitMQ__Username: ${RABBITMQ_USER:-messenger}
+      RabbitMQ__Password: ${RABBITMQ_PASSWORD:-CHANGE_THIS_PASSWORD}
     ports:
       - "5006:80"
     depends_on:
@@ -224,7 +226,7 @@ services:
       dockerfile: Dockerfile
     container_name: messenger_file_transfer_service
     environment:
-      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_files;Username=messenger_admin;Password=secure_password_123"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Database=messenger_files;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-CHANGE_THIS_PASSWORD}"
     ports:
       - "5007:80"
     depends_on:

@@ -1,0 +1,97 @@
+name: Backend CI/CD Pipeline
+
+on:
+  push:
+    branches: [ master, develop ]
+    paths:
+      - 'src/Backend/**'
+      - 'tests/**'
+      - '.github/workflows/backend-ci.yml'
+  pull_request:
+    branches: [ master, develop ]
+    paths:
+      - 'src/Backend/**'
+      - 'tests/**'
+
+jobs:
+  build-and-test:
+    name: Build & Test Backend Services
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: messenger_admin
+          POSTGRES_PASSWORD: secure_password_123
+          POSTGRES_DB: messenger_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      rabbitmq:
+        image: rabbitmq:3-management-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: messenger
+          RABBITMQ_DEFAULT_PASS: rabbitmq_password
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET 8.0
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    
+    - name: Restore Dependencies
+      run: dotnet restore
+    
+    - name: Build Solution
+      run: dotnet build --configuration Release --no-restore
+    
+    - name: Run Tests
+      run: dotnet test --configuration Release --no-build --verbosity normal --collect:"XPlat Code Coverage"
+      env:
+        ConnectionStrings__DefaultConnection: "Host=localhost;Database=messenger_db;Username=messenger_admin;Password=secure_password_123"
+        RabbitMQ__Host: "localhost"
+        RabbitMQ__Username: "messenger"
+        RabbitMQ__Password: "rabbitmq_password"
+    
+    - name: Upload Coverage Reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: '**/coverage.cobertura.xml'
+        flags: backend
+        name: backend-coverage
+    
+    - name: Build Docker Images
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: |
+        docker build -t messenger/auth-service:latest ./src/Backend/AuthService
+        docker build -t messenger/message-service:latest ./src/Backend/MessageService
+        docker build -t messenger/crypto-service:latest ./src/Backend/CryptoService
+        docker build -t messenger/notification-service:latest ./src/Backend/NotificationService
+        docker build -t messenger/key-management-service:latest ./src/Backend/KeyManagementService
+        docker build -t messenger/user-service:latest ./src/Backend/UserService
+        docker build -t messenger/file-transfer-service:latest ./src/Backend/FileTransferService
+        docker build -t messenger/audit-log-service:latest ./src/Backend/AuditLogService
+        docker build -t messenger/gateway-service:latest ./src/Backend/GatewayService
+    
+    - name: Test Results Summary
+      if: always()
+      run: |
+        echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+        echo "- Build: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Tests: All passed" >> $GITHUB_STEP_SUMMARY

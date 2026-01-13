@@ -1,55 +1,88 @@
 using System.Windows;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
+using MessengerClient.Services;
+using MessengerClient.ViewModels;
+using MessengerClient.Views;
+using MessengerClient.Data;
+using Refit;
 
 namespace MessengerClient
 {
     public partial class App : Application
     {
-        // PSEUDO CODE: WPF Application Entry Point
+        public IServiceProvider? ServiceProvider { get; private set; }
 
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
 
-            // PSEUDO CODE:
-            // 1. Initialize dependency injection container
-            // 2. Register services:
-            //    - ApiClient
-            //    - CryptoService (Layer 1, 2, 3)
-            //    - SignalR Hub Connection
-            //    - Theme Manager
-            //    - State Management
-            // 3. Load user settings (theme, privacy mode)
-            // 4. Check if user is logged in (JWT token in secure storage)
-            //    - If YES: Navigate to MainWindow
-            //    - If NO: Navigate to LoginWindow
-            // 5. Apply selected theme (Dark Mode default)
+            ServiceCollection services = new ServiceCollection();
+            ConfigureServices(services);
+            ServiceProvider = services.BuildServiceProvider();
 
-            // Initialize services
-            // var services = new ServiceCollection();
-            // ConfigureServices(services);
-            // ServiceProvider = services.BuildServiceProvider();
+            LocalDbContext dbContext = ServiceProvider.GetRequiredService<LocalDbContext>();
+            dbContext.Database.EnsureCreated();
 
-            // Check authentication
-            // var authService = ServiceProvider.GetService<IAuthService>();
-            // if (authService.IsAuthenticated())
-            // {
-            //     MainWindow = new MainWindow();
-            // }
-            // else
-            // {
-            //     MainWindow = new LoginWindow();
-            // }
+            Window loginWindow = new Window
+            {
+                Content = new LoginView
+                {
+                    DataContext = ServiceProvider.GetRequiredService<LoginViewModel>()
+                },
+                Title = "Secure Messenger - Login",
+                Width = 500,
+                Height = 600,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.NoResize
+            };
+            loginWindow.Show();
+        }
 
-            // MainWindow.Show();
+        private void ConfigureServices(ServiceCollection services)
+        {
+            string gatewayUrl = "https://localhost:7001";
+
+            services.AddRefitClient<IAuthApiService>()
+                .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl));
+
+            services.AddRefitClient<IMessageApiService>()
+                .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl));
+
+            services.AddRefitClient<IUserApiService>()
+                .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl));
+
+            services.AddRefitClient<IFileApiService>()
+                .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl));
+
+            services.AddRefitClient<ICryptoApiService>()
+                .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl));
+
+            services.AddSingleton(provider => new SignalRService(gatewayUrl));
+            services.AddSingleton<LocalCryptoService>();
+            services.AddSingleton<LocalStorageService>();
+
+            services.AddDbContext<LocalDbContext>(options =>
+                options.UseSqlite("Data Source=messenger.db"));
+
+            services.AddTransient<LoginViewModel>();
+            services.AddTransient<RegisterViewModel>();
+            services.AddTransient<ChatViewModel>();
+            services.AddTransient<ContactsViewModel>();
+            services.AddTransient<SettingsViewModel>();
+            services.AddTransient<MainViewModel>();
         }
 
         protected override void OnExit(ExitEventArgs e)
         {
-            // PSEUDO CODE:
-            // 1. Disconnect SignalR
-            // 2. Clear sensitive data from memory
-            // 3. Save user preferences
-            // 4. Log out gracefully
+            SignalRService? signalR = ServiceProvider?.GetService<SignalRService>();
+            if (signalR != null && signalR.IsConnected)
+            {
+                signalR.DisconnectAsync().GetAwaiter().GetResult();
+            }
+
+            LocalCryptoService? crypto = ServiceProvider?.GetService<LocalCryptoService>();
+            crypto?.ClearMasterKey();
 
             base.OnExit(e);
         }

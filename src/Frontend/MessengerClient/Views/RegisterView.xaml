@@ -8,9 +8,10 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
-             d:DesignHeight="700" d:DesignWidth="400">
+             d:DesignHeight="700" d:DesignWidth="400"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
     
-    <Grid Background="{DynamicResource BackgroundBrush}">
+    <Grid Background="{DynamicResource MaterialDesignPaper}">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="40,60,40,40">
                 <!-- Header -->
@@ -25,7 +26,8 @@
                     <TextBlock Text="Benutzername" 
                                Style="{StaticResource LabelTextStyle}"/>
                     <TextBox Style="{StaticResource InputTextBoxStyle}"
-                             Margin="0,5,0,5">
+                             Margin="0,5,0,5"
+                             materialDesign:HintAssist.Hint="Benutzername">
                         <!-- PSEUDO: Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" -->
                     </TextBox>
                     <TextBlock Style="{StaticResource HintTextStyle}"
@@ -36,7 +38,8 @@
                     <TextBlock Text="E-Mail" 
                                Style="{StaticResource LabelTextStyle}"/>
                     <TextBox Style="{StaticResource InputTextBoxStyle}"
-                             Margin="0,5,0,20">
+                             Margin="0,5,0,20"
+                             materialDesign:HintAssist.Hint="E-Mail">
                         <!-- PSEUDO: Text="{Binding Email, UpdateSourceTrigger=PropertyChanged}" -->
                     </TextBox>
                     
@@ -44,7 +47,8 @@
                     <TextBlock Text="Passwort" 
                                Style="{StaticResource LabelTextStyle}"/>
                     <PasswordBox Style="{StaticResource InputPasswordBoxStyle}"
-                                 Margin="0,5,0,5">
+                                 Margin="0,5,0,5"
+                                 materialDesign:HintAssist.Hint="Passwort (min. 8 Zeichen)">
                         <!-- PSEUDO: Password binding -->
                     </PasswordBox>
                     <TextBlock Style="{StaticResource HintTextStyle}"
@@ -56,7 +60,8 @@
                     <TextBlock Text="Passwort bestätigen" 
                                Style="{StaticResource LabelTextStyle}"/>
                     <PasswordBox Style="{StaticResource InputPasswordBoxStyle}"
-                                 Margin="0,5,0,20">
+                                 Margin="0,5,0,20"
+                                 materialDesign:HintAssist.Hint="Passwort bestätigen">
                         <!-- PSEUDO: Password confirmation binding -->
                     </PasswordBox>
                     
@@ -94,25 +99,37 @@
                     <Button Content="Konto erstellen" 
                             Style="{StaticResource PrimaryButtonStyle}"
                             Height="45"
-                            Margin="0,10,0,15">
-                        <!-- PSEUDO: Command="{Binding RegisterCommand}" -->
-                        <!-- PSEUDO: IsEnabled="{Binding CanRegister}" -->
+                            Margin="0,10,0,15"
+                            Command="{Binding RegisterCommand}"
+                            IsEnabled="{Binding CanRegister}">
                     </Button>
                     
                     <!-- Error Message -->
                     <TextBlock Style="{StaticResource ErrorTextStyle}"
                                TextWrapping="Wrap"
-                               Margin="0,0,0,15">
-                        <!-- PSEUDO: Text="{Binding ErrorMessage}" -->
+                               Margin="0,0,0,15"
+                               Text="{Binding ErrorMessage}">
                     </TextBlock>
+                    
+                    <!-- Success Message -->
+                    <TextBlock Style="{StaticResource SuccessTextStyle}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,15"
+                               Text="{Binding SuccessMessage}">
+                    </TextBlock>
+                    
+                    <!-- Loader -->
+                    <ProgressBar IsIndeterminate="True"
+                                 Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibilityConverter}}"
+                                 Margin="0,0,0,15"/>
                     
                     <!-- Back to Login -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                         <TextBlock Text="Bereits ein Konto? " 
                                    Style="{StaticResource BodyTextStyle}"/>
                         <TextBlock Text="Anmelden" 
-                                   Style="{StaticResource LinkTextStyle}">
-                            <!-- PSEUDO: Command="{Binding NavigateToLoginCommand}" -->
+                                   Style="{StaticResource LinkTextStyle}"
+                                   Command="{Binding NavigateToLoginCommand}">
                         </TextBlock>
                     </StackPanel>
                 </StackPanel>

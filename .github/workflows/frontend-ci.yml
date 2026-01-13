@@ -1,0 +1,64 @@
+name: Frontend CI/CD Pipeline
+
+on:
+  push:
+    branches: [ master, develop ]
+    paths:
+      - 'src/Frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+  pull_request:
+    branches: [ master, develop ]
+    paths:
+      - 'src/Frontend/**'
+
+jobs:
+  build-wpf-client:
+    name: Build WPF Client
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET 8.0
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    
+    - name: Restore Dependencies
+      run: dotnet restore src/Frontend/MessengerClient/MessengerClient.csproj
+    
+    - name: Build WPF Client
+      run: dotnet build src/Frontend/MessengerClient/MessengerClient.csproj --configuration Release --no-restore
+    
+    - name: Publish Standalone Build
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      run: |
+        dotnet publish src/Frontend/MessengerClient/MessengerClient.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -o publish/MessengerClient
+    
+    - name: Upload Artifacts
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      uses: actions/upload-artifact@v4
+      with:
+        name: MessengerClient-win-x64
+        path: publish/MessengerClient
+        retention-days: 30
+    
+    - name: Create Release Asset
+      if: github.event_name == 'push' && github.ref == 'refs/heads/master' && startsWith(github.ref, 'refs/tags/')
+      run: |
+        Compress-Archive -Path publish/MessengerClient/* -DestinationPath MessengerClient-${{ github.ref_name }}-win-x64.zip
+    
+    - name: Build Summary
+      if: always()
+      run: |
+        echo "## Build Results" >> $env:GITHUB_STEP_SUMMARY
+        echo "- Build: ${{ job.status }}" >> $env:GITHUB_STEP_SUMMARY
+        echo "- Platform: Windows x64" >> $env:GITHUB_STEP_SUMMARY
+        echo "- Configuration: Release" >> $env:GITHUB_STEP_SUMMARY

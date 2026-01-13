@@ -56,11 +56,11 @@ namespace MessengerTests.IntegrationTests
                 Id = Guid.NewGuid(),
                 ConversationId = conversation.Id,
                 SenderId = senderId,
-                Content = "Encrypted content", // Changed from ContentEncrypted (byte[]) to Content (string)
+                EncryptedContent = new byte[] { 1, 2, 3, 4, 5 },
                 Nonce = new byte[12],
                 Type = EntityMessageType.Text,
                 Status = EntityMessageStatus.Sent,
-                SentAt = DateTime.UtcNow // Changed from Timestamp to SentAt
+                CreatedAt = DateTime.UtcNow
             };
 
             // Act
@@ -142,11 +142,11 @@ namespace MessengerTests.IntegrationTests
                 Id = Guid.NewGuid(),
                 ConversationId = Guid.NewGuid(),
                 SenderId = Guid.NewGuid(),
-                Content = "Test message",
+                EncryptedContent = new byte[] { 1, 2, 3, 4, 5 },
                 Nonce = new byte[12],
                 Type = EntityMessageType.Text,
                 Status = EntityMessageStatus.Sent,
-                SentAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow
             };
 
             await _context.Messages.AddAsync(message);
@@ -154,7 +154,6 @@ namespace MessengerTests.IntegrationTests
 
             // Act
             message.Status = EntityMessageStatus.Delivered;
-            message.DeliveredAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
             var deliveredMessage = await _context.Messages.FindAsync(message.Id);
@@ -162,7 +161,6 @@ namespace MessengerTests.IntegrationTests
             // Assert
             Assert.NotNull(deliveredMessage);
             Assert.Equal(EntityMessageStatus.Delivered, deliveredMessage.Status);
-            Assert.NotNull(deliveredMessage.DeliveredAt);
         }
 
         [Fact]
@@ -171,7 +169,6 @@ namespace MessengerTests.IntegrationTests
             // NOTE: This test requires RabbitMQ to be running
             // Skip if RabbitMQ is not available
             
-            // Arrange
             RabbitMQService? rabbitMQService = null;
             
             try
@@ -182,9 +179,9 @@ namespace MessengerTests.IntegrationTests
                 {
                     MessageId = Guid.NewGuid(),
                     SenderId = Guid.NewGuid(),
-                    RecipientIds = new[] { Guid.NewGuid() },
+                    RecipientIds = new List<Guid> { Guid.NewGuid() },
                     ConversationId = Guid.NewGuid(),
-                    SentAt = DateTime.UtcNow
+                    Timestamp = DateTime.UtcNow
                 };
 
                 // Act
