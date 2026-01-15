@@ -6,6 +6,7 @@ namespace MessengerClient.Services
 {
     public interface IAuthApiService
     {
+        // Refit API calls
         [Post("/api/auth/register")]
         Task<RegisterResponse> RegisterAsync([Body] RegisterRequest request);
 
@@ -23,26 +24,10 @@ namespace MessengerClient.Services
 
         [Post("/api/auth/logout")]
         Task LogoutAsync([Header("Authorization")] string authorization);
-    }
-
-    // Concrete implementation will handle token storage
-    public static class AuthApiServiceExtensions
-    {
-        private static readonly LocalStorageService _localStorage = new(null!); // TODO: Proper DI
-
-        public static async Task StoreTokensAsync(this IAuthApiService service, string accessToken, string refreshToken)
-        {
-            await _localStorage.SaveTokenAsync(accessToken);
-        }
-
-        public static async Task<string?> GetStoredTokenAsync(this IAuthApiService service)
-        {
-            return await _localStorage.GetTokenAsync();
-        }
-
-        public static async Task ClearStoredTokensAsync(this IAuthApiService service)
-        {
-            await _localStorage.ClearTokenAsync();
-        }
+        
+        // Token management (non-Refit methods)
+        Task StoreTokensAsync(string accessToken, string refreshToken);
+        Task<string?> GetStoredTokenAsync();
+        Task ClearStoredTokensAsync();
     }
 }

@@ -11,7 +11,7 @@ namespace MessengerClient.Services
     /// Encrypts local data at rest using AES-256-GCM with password-derived master key
     /// Protects against device theft and forensic analysis (DSGVO Art. 32 compliant)
     /// </summary>
-    public class LocalCryptoService
+    public class LocalCryptoService : IDisposable
     {
         private byte[]? _masterKey;
         private const int SaltSize = 32;     // 256 bits
@@ -119,9 +119,18 @@ namespace MessengerClient.Services
         {
             if (_masterKey != null)
             {
-                Array.Clear(_masterKey, 0, _masterKey.Length);
+                CryptographicOperations.ZeroMemory(_masterKey);
                 _masterKey = null;
             }
+        }
+
+        /// <summary>
+        /// IDisposable implementation for automatic cleanup
+        /// Called by Dependency Injection container on app shutdown
+        /// </summary>
+        public void Dispose()
+        {
+            ClearMasterKey();
         }
     }
 }

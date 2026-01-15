@@ -13,7 +13,7 @@ using ContractsConversationDto = MessengerContracts.DTOs.ConversationDto;
 
 namespace MessengerClient.ViewModels
 {
-    public class ChatViewModel : ReactiveObject
+    public class ChatViewModel : ReactiveObject, IDisposable
     {
         private readonly IMessageApiService _messageApi;
         private readonly ICryptoApiService _cryptoApi;
@@ -98,7 +98,7 @@ namespace MessengerClient.ViewModels
             SendFileCommand = ReactiveCommand.CreateFromTask(SendFileAsync);
             RefreshConversationsCommand = ReactiveCommand.CreateFromTask(LoadConversationsAsync);
 
-            _signalR.OnMessageReceived += async (message) => await HandleNewMessageAsync(message);
+            _signalR.OnMessageReceived += HandleNewMessageAsync;
 
             _ = InitializeAsync();
         }
@@ -329,6 +329,12 @@ namespace MessengerClient.ViewModels
         {
             LocalUserProfile? profile = await _localStorage.GetUserProfileAsync();
             return profile?.UserId ?? Guid.Empty;
+        }
+
+        public void Dispose()
+        {
+            // Unsubscribe from SignalR events to prevent memory leaks
+            _signalR.OnMessageReceived -= HandleNewMessageAsync;
         }
     }
 

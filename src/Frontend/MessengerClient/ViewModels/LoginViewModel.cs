@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using MessengerClient.Commands;
 using MessengerClient.Services;
 using MessengerContracts.DTOs;
 using ContractsLoginResponse = MessengerContracts.DTOs.LoginResponse;

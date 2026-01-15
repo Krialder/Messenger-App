@@ -24,7 +24,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Shared\MessengerContracts\MessengerContracts.csproj" />
     <ProjectReference Include="..\..\Shared\MessengerCommon\MessengerCommon.csproj" />
-    <ProjectReference Include="..\CryptoService\CryptoService.csproj" />
   </ItemGroup>
 
 </Project>

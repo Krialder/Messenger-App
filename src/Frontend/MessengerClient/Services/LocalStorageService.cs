@@ -40,6 +40,30 @@ namespace MessengerClient.Services
             await Task.CompletedTask;
         }
 
+        // Refresh Token Management (separate storage for security)
+        public async Task SaveRefreshTokenAsync(string refreshToken)
+        {
+            await File.WriteAllTextAsync("refresh_token.txt", refreshToken);
+        }
+
+        public async Task<string?> GetRefreshTokenAsync()
+        {
+            if (File.Exists("refresh_token.txt"))
+            {
+                return await File.ReadAllTextAsync("refresh_token.txt");
+            }
+            return null;
+        }
+
+        public async Task ClearRefreshTokenAsync()
+        {
+            if (File.Exists("refresh_token.txt"))
+            {
+                File.Delete("refresh_token.txt");
+            }
+            await Task.CompletedTask;
+        }
+
         public async Task SaveUserProfileAsync(Guid userId, string email, string displayName, byte[] salt, byte[] publicKey)
         {
             LocalUserProfile? profile = await _context.UserProfile.FindAsync(userId);

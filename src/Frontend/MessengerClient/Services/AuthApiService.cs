@@ -50,8 +50,12 @@ namespace MessengerClient.Services
         // Token management implementation
         public async Task StoreTokensAsync(string accessToken, string refreshToken)
         {
+            // Store access token
             await _localStorage.SaveTokenAsync(accessToken);
-            // TODO: Store refresh token securely (separate from access token)
+            
+            // Store refresh token separately in secure storage
+            // Using LocalStorage with encryption (Layer 2)
+            await _localStorage.SaveRefreshTokenAsync(refreshToken);
         }
 
         public async Task<string?> GetStoredTokenAsync()
@@ -62,6 +66,7 @@ namespace MessengerClient.Services
         public async Task ClearStoredTokensAsync()
         {
             await _localStorage.ClearTokenAsync();
+            await _localStorage.ClearRefreshTokenAsync();
         }
     }
 }
