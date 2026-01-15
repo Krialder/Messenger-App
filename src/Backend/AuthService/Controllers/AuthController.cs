@@ -1,15 +1,16 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using AuthService.Data;
 using AuthService.Data.Entities;
 using MessengerContracts.DTOs;
 using MessengerContracts.Interfaces;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 
 namespace AuthService.Controllers;
 
 /// <summary>
-/// Authentication controller handling registration, login, and token management
+/// Authentication controller for user registration, login, and token management
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
@@ -36,51 +37,50 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Register a new user account
+    /// Register a new user
     /// </summary>
+    /// <param name="request">Registration details</param>
+    /// <returns>Registration response with user ID and master key salt</returns>
     [HttpPost("register")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(RegisterResponse), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
         try
         {
-            // 1. Validate input
-            if (string.IsNullOrWhiteSpace(request.Username) || request.Username.Length < 3 || request.Username.Length > 50)
-                return BadRequest("Username must be between 3 and 50 characters");
-
-            if (string.IsNullOrWhiteSpace(request.Email) || !request.Email.Contains("@"))
-                return BadRequest("Valid email is required");
-
-            if (string.IsNullOrWhiteSpace(request.Password) || request.Password.Length < 12)
-                return BadRequest("Password must be at least 12 characters");
-
-            // 2. Check if user already exists
-            var existingUser = await _context.Users
-                .FirstOrDefaultAsync(u => u.Username == request.Username || u.Email == request.Email);
-
-            if (existingUser != null)
+            // Check if username already exists
+            if (await _context.Users.AnyAsync(u => u.Username == request.Username))
             {
                 return Conflict(new ProblemDetails
                 {
-                    Title = "User already exists",
-                    Detail = existingUser.Username == request.Username
-                        ? "Username is already taken"
-                        : "Email is already registered",
-                    Status = StatusCodes.Status409Conflict
+                    Status = StatusCodes.Status409Conflict,
+                    Title = "Username already exists",
+                    Detail = $"Username '{request.Username}' is already taken"
                 });
             }
 
-            // 3. Hash password using Argon2id
-            var passwordHash = _passwordHasher.HashPassword(request.Password);
+            // Check if email already exists
+            if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+            {
+                return Conflict(new ProblemDetails
+                {
+                    Status = StatusCodes.Status409Conflict,
+                    Title = "Email already exists",
+                    Detail = $"Email '{request.Email}' is already registered"
+                });
+            }
 
-            // 4. Generate master key salt (32 bytes for Layer 2 encryption)
-            var masterKeySalt = new byte[32];
-            System.Security.Cryptography.RandomNumberGenerator.Fill(masterKeySalt);
+            // Generate master key salt (32 bytes for Argon2id)
+            byte[] masterKeySalt = new byte[32];
+            RandomNumberGenerator.Fill(masterKeySalt);
 
-            // 5. Create user
-            var user = new AuthService.Data.User
+            // Hash password
+            string passwordHash = _passwordHasher.HashPassword(request.Password);
+
+            // Create new user
+            User newUser = new User
             {
                 Id = Guid.NewGuid(),
                 Username = request.Username,
@@ -94,290 +94,389 @@ public class AuthController : ControllerBase
                 MfaEnabled = false
             };
 
-            _context.Users.Add(user);
+            _context.Users.Add(newUser);
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("User registered: {UserId}, Username: {Username}", user.Id, user.Username);
+            _logger.LogInformation("User {Username} registered successfully with ID {UserId}",
+                request.Username, newUser.Id);
 
-            // 6. Return user ID and master key salt
-            return CreatedAtAction(
-                nameof(Register),
-                new RegisterResponse(
-                    user.Id,
-                    user.Username,
-                    user.Email,
-                    Convert.ToBase64String(user.MasterKeySalt),
-                    "Registration successful. Please verify your email."
-                ));
+            // Return response
+            RegisterResponse response = new RegisterResponse(
+                UserId: newUser.Id,
+                Username: newUser.Username,
+                Email: newUser.Email,
+                MasterKeySalt: Convert.ToBase64String(masterKeySalt)
+            );
+
+            return CreatedAtAction(nameof(Register), new { id = newUser.Id }, response);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during registration");
-            return StatusCode(500, "An error occurred during registration");
+            _logger.LogError(ex, "Error during user registration for email {Email}", request.Email);
+            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "Registration failed",
+                Detail = "An error occurred during registration"
+            });
         }
     }
 
     /// <summary>
     /// Login with username/email and password
     /// </summary>
+    /// <param name="request">Login credentials</param>
+    /// <returns>Login response with JWT token or MFA requirement</returns>
     [HttpPost("login")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(MfaRequiredResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status423Locked)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
         try
         {
-            var user = await _context.Users
-                .Include(u => u.MfaMethods.Where(m => m.IsActive))
-                .FirstOrDefaultAsync(u => u.Username == request.UsernameOrEmail || u.Email == request.UsernameOrEmail);
+            // Find user by email
+            User? user = await _context.Users
+                .Include(u => u.MfaMethods)
+                .FirstOrDefaultAsync(u => u.Email == request.Email && u.IsActive);
 
             if (user == null)
             {
-                _logger.LogWarning("Login failed: User not found - {UsernameOrEmail}", request.UsernameOrEmail);
-                return Unauthorized("Invalid credentials");
+                _logger.LogWarning("Login attempt failed: User not found for email {Email}", request.Email);
+                return Unauthorized(new ProblemDetails
+                {
+                    Status = StatusCodes.Status401Unauthorized,
+                    Title = "Invalid credentials",
+                    Detail = "Email or password is incorrect"
+                });
             }
 
-            if (!user.IsActive || user.AccountStatus != "active")
-            {
-                return StatusCode(423, "Account is locked or suspended");
-            }
-
+            // Verify password
             if (!_passwordHasher.VerifyPassword(request.Password, user.PasswordHash))
             {
-                _logger.LogWarning("Login failed: Invalid password for user {UserId}", user.Id);
-                return Unauthorized("Invalid credentials");
+                _logger.LogWarning("Login attempt failed: Invalid password for user {UserId}", user.Id);
+                return Unauthorized(new ProblemDetails
+                {
+                    Status = StatusCodes.Status401Unauthorized,
+                    Title = "Invalid credentials",
+                    Detail = "Email or password is incorrect"
+                });
             }
 
-            if (user.MfaEnabled && user.MfaMethods.Any())
+            // Check if MFA is enabled
+            if (user.MfaEnabled && user.MfaMethods.Any(m => m.IsActive))
             {
-                var sessionToken = _tokenService.GenerateAccessToken(user.Id, user.Username, new List<string> { "mfa_pending" });
+                _logger.LogInformation("User {UserId} requires MFA verification", user.Id);
 
-                var availableMethods = user.MfaMethods.Select(m => new MfaMethodDto
-                {
-                    Id = m.Id,
-                    MethodType = m.MethodType,
-                    FriendlyName = m.FriendlyName ?? m.MethodType.ToUpper(),
-                    IsPrimary = m.IsPrimary,
-                    IsEnabled = m.IsActive,
-                    CreatedAt = m.CreatedAt,
-                    LastUsedAt = m.LastUsedAt
-                }).ToList();
-
-                return Ok(new MfaRequiredResponse(
-                    true,
-                    sessionToken,
-                    availableMethods
+                return Ok(new LoginResponse(
+                    User: new UserDto
+                    {
+                        Id = user.Id,
+                        Username = user.Username,
+                        Email = user.Email,
+                        DisplayName = user.Username,
+                        MfaEnabled = true,
+                        EmailVerified = user.EmailVerified,
+                        CreatedAt = user.CreatedAt
+                    },
+                    AccessToken: string.Empty,
+                    RefreshToken: string.Empty,
+                    ExpiresIn: 0,
+                    MfaRequired: true
                 ));
             }
 
-            var accessToken = _tokenService.GenerateAccessToken(user.Id, user.Username, new List<string> { "user" });
-            var refreshToken = _tokenService.GenerateRefreshToken();
+            // Generate JWT tokens
+            List<string> roles = new List<string> { "User" };
+            string accessToken = _tokenService.GenerateAccessToken(user.Id, user.Username, roles);
+            string refreshToken = _tokenService.GenerateRefreshToken();
 
-            var refreshTokenEntity = new AuthService.Data.RefreshToken
+            // Save refresh token
+            RefreshToken refreshTokenEntity = new RefreshToken
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
                 Token = refreshToken,
-                ExpiresAt = DateTime.UtcNow.AddDays(7),
                 CreatedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
                 IsRevoked = false
             };
 
             _context.RefreshTokens.Add(refreshTokenEntity);
 
+            // Update last login
             user.LastLoginAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("User logged in: {UserId}", user.Id);
+            _logger.LogInformation("User {UserId} logged in successfully", user.Id);
 
             return Ok(new LoginResponse(
-                accessToken,
-                refreshToken,
-                900,
-                "Bearer",
-                new UserDto
+                User: new UserDto
                 {
                     Id = user.Id,
                     Username = user.Username,
                     Email = user.Email,
-                    MfaEnabled = user.MfaEnabled
-                }
+                    DisplayName = user.Username,
+                    MfaEnabled = user.MfaEnabled,
+                    EmailVerified = user.EmailVerified,
+                    CreatedAt = user.CreatedAt
+                },
+                AccessToken: accessToken,
+                RefreshToken: refreshToken,
+                ExpiresIn: 900, // 15 minutes
+                MfaRequired: false
             ));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during login");
-            return StatusCode(500, "An error occurred during login");
+            _logger.LogError(ex, "Error during login for email {Email}", request.Email);
+            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "Login failed",
+                Detail = "An error occurred during login"
+            });
         }
     }
 
     /// <summary>
     /// Verify MFA code and complete login
     /// </summary>
+    /// <param name="request">MFA verification request</param>
+    /// <returns>Login response with JWT tokens</returns>
     [HttpPost("verify-mfa")]
-    [Authorize(Roles = "mfa_pending")]
-    [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(LoginResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> VerifyMfa([FromBody] VerifyMfaRequest request)
     {
         try
         {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (!Guid.TryParse(userIdClaim, out var userId))
-            {
-                return Unauthorized("Invalid session token");
-            }
-
-            var user = await _context.Users
+            // Find user
+            User? user = await _context.Users
                 .Include(u => u.MfaMethods)
-                .FirstOrDefaultAsync(u => u.Id == userId);
+                .Include(u => u.RecoveryCodes)
+                .FirstOrDefaultAsync(u => u.Email == request.Email && u.IsActive);
 
-            if (user == null)
-                return Unauthorized("User not found");
-
-            var mfaMethod = user.MfaMethods.FirstOrDefault(m => m.Id == request.MethodId && m.IsActive);
-            if (mfaMethod == null)
-                return BadRequest("Invalid MFA method");
+            if (user == null || !user.MfaEnabled)
+            {
+                return Unauthorized(new ProblemDetails
+                {
+                    Status = StatusCodes.Status401Unauthorized,
+                    Title = "MFA verification failed",
+                    Detail = "Invalid user or MFA not enabled"
+                });
+            }
 
             bool isValid = false;
 
-            if (mfaMethod.MethodType == "totp" && !string.IsNullOrEmpty(mfaMethod.TotpSecret))
+            // Try TOTP verification first
+            MfaMethod? totpMethod = user.MfaMethods.FirstOrDefault(m => m.MethodType == "totp" && m.IsActive);
+            if (totpMethod != null && !string.IsNullOrEmpty(totpMethod.TotpSecret))
             {
-                isValid = _mfaService.ValidateTotpCode(mfaMethod.TotpSecret, request.Code);
+                isValid = _mfaService.ValidateTotpCode(totpMethod.TotpSecret, request.MfaCode);
+
+                if (isValid)
+                {
+                    totpMethod.LastUsedAt = DateTime.UtcNow;
+                }
             }
-            else
+
+            // If TOTP failed, try recovery code
+            if (!isValid)
             {
-                return BadRequest("Unsupported MFA method");
+                RecoveryCode? validCode = user.RecoveryCodes.FirstOrDefault(rc => !rc.Used);
+                if (validCode != null)
+                {
+                    isValid = await _mfaService.ValidateRecoveryCodeAsync(user.Id, request.MfaCode);
+                }
             }
 
             if (!isValid)
             {
-                _logger.LogWarning("MFA verification failed for user {UserId}", userId);
-                return Unauthorized("Invalid MFA code");
+                _logger.LogWarning("MFA verification failed for user {UserId}", user.Id);
+                return Unauthorized(new ProblemDetails
+                {
+                    Status = StatusCodes.Status401Unauthorized,
+                    Title = "MFA verification failed",
+                    Detail = "Invalid MFA code"
+                });
             }
 
-            mfaMethod.LastUsedAt = DateTime.UtcNow;
+            // Generate JWT tokens
+            List<string> roles = new List<string> { "User" };
+            string accessToken = _tokenService.GenerateAccessToken(user.Id, user.Username, roles);
+            string refreshToken = _tokenService.GenerateRefreshToken();
 
-            var accessToken = _tokenService.GenerateAccessToken(user.Id, user.Username, new List<string> { "user" });
-            var refreshToken = _tokenService.GenerateRefreshToken();
-
-            var refreshTokenEntity = new AuthService.Data.RefreshToken
+            // Save refresh token
+            RefreshToken refreshTokenEntity = new RefreshToken
             {
                 Id = Guid.NewGuid(),
                 UserId = user.Id,
                 Token = refreshToken,
-                ExpiresAt = DateTime.UtcNow.AddDays(7),
                 CreatedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
                 IsRevoked = false
             };
 
             _context.RefreshTokens.Add(refreshTokenEntity);
 
+            // Update last login
             user.LastLoginAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("MFA verification successful for user {UserId}", userId);
+            _logger.LogInformation("User {UserId} verified MFA successfully", user.Id);
 
-            return Ok(new TokenResponse(
-                accessToken,
-                refreshToken,
-                900,
-                "Bearer"
+            return Ok(new LoginResponse(
+                User: new UserDto
+                {
+                    Id = user.Id,
+                    Username = user.Username,
+                    Email = user.Email,
+                    DisplayName = user.Username,
+                    MfaEnabled = user.MfaEnabled,
+                    EmailVerified = user.EmailVerified,
+                    CreatedAt = user.CreatedAt
+                },
+                AccessToken: accessToken,
+                RefreshToken: refreshToken,
+                ExpiresIn: 900,
+                MfaRequired: false
             ));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during MFA verification");
-            return StatusCode(500, "An error occurred during MFA verification");
+            _logger.LogError(ex, "Error during MFA verification for email {Email}", request.Email);
+            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "MFA verification failed",
+                Detail = "An error occurred during MFA verification"
+            });
         }
     }
 
     /// <summary>
     /// Refresh access token using refresh token
     /// </summary>
+    /// <param name="request">Refresh token request</param>
+    /// <returns>New access and refresh tokens</returns>
     [HttpPost("refresh")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(TokenResponse), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequest request)
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
     {
         try
         {
-            var refreshTokenEntity = await _context.RefreshTokens
+            // Find refresh token
+            RefreshToken? refreshToken = await _context.RefreshTokens
                 .Include(rt => rt.User)
                 .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken && !rt.IsRevoked);
 
-            if (refreshTokenEntity == null)
+            if (refreshToken == null || refreshToken.ExpiresAt < DateTime.UtcNow)
             {
-                _logger.LogWarning("Refresh token not found or revoked");
-                return Unauthorized("Invalid refresh token");
+                _logger.LogWarning("Invalid or expired refresh token");
+                return Unauthorized(new ProblemDetails
+                {
+                    Status = StatusCodes.Status401Unauthorized,
+                    Title = "Invalid refresh token",
+                    Detail = "Refresh token is invalid or expired"
+                });
             }
 
-            if (refreshTokenEntity.ExpiresAt < DateTime.UtcNow)
+            // Check if user is still active
+            if (!refreshToken.User.IsActive)
             {
-                _logger.LogWarning("Refresh token expired for user {UserId}", refreshTokenEntity.UserId);
-                return Unauthorized("Refresh token expired");
+                return Unauthorized(new ProblemDetails
+                {
+                    Status = StatusCodes.Status401Unauthorized,
+                    Title = "User account inactive",
+                    Detail = "User account is no longer active"
+                });
             }
 
-            var newAccessToken = _tokenService.GenerateAccessToken(
-                refreshTokenEntity.User.Id,
-                refreshTokenEntity.User.Username,
-                new List<string> { "user" });
+            // Generate new tokens
+            List<string> roles = new List<string> { "User" };
+            string newAccessToken = _tokenService.GenerateAccessToken(
+                refreshToken.User.Id,
+                refreshToken.User.Username,
+                roles);
+            string newRefreshToken = _tokenService.GenerateRefreshToken();
 
-            _logger.LogInformation("Access token refreshed for user {UserId}", refreshTokenEntity.UserId);
+            // Revoke old refresh token
+            refreshToken.IsRevoked = true;
+
+            // Create new refresh token
+            RefreshToken newRefreshTokenEntity = new RefreshToken
+            {
+                Id = Guid.NewGuid(),
+                UserId = refreshToken.UserId,
+                Token = newRefreshToken,
+                CreatedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddDays(7),
+                IsRevoked = false
+            };
+
+            _context.RefreshTokens.Add(newRefreshTokenEntity);
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Refresh token renewed for user {UserId}", refreshToken.UserId);
 
             return Ok(new TokenResponse(
-                newAccessToken,
-                request.RefreshToken,
-                900,
-                "Bearer"
+                AccessToken: newAccessToken,
+                RefreshToken: newRefreshToken,
+                ExpiresIn: 900
             ));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during token refresh");
-            return StatusCode(500, "An error occurred during token refresh");
+            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "Token refresh failed",
+                Detail = "An error occurred during token refresh"
+            });
         }
     }
 
     /// <summary>
     /// Logout and revoke refresh token
     /// </summary>
+    /// <param name="request">Logout request with refresh token</param>
+    /// <returns>No content on success</returns>
     [HttpPost("logout")]
-    [Authorize]
+    [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> Logout()
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> Logout([FromBody] RefreshTokenRequest request)
     {
         try
         {
-            var userIdClaim = User.FindFirst("sub")?.Value;
-            if (!Guid.TryParse(userIdClaim, out var userId))
+            // Find and revoke refresh token
+            RefreshToken? refreshToken = await _context.RefreshTokens
+                .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken && !rt.IsRevoked);
+
+            if (refreshToken != null)
             {
-                return Unauthorized("Invalid token");
+                refreshToken.IsRevoked = true;
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("User {UserId} logged out successfully", refreshToken.UserId);
             }
-
-            var refreshTokens = await _context.RefreshTokens
-                .Where(rt => rt.UserId == userId && !rt.IsRevoked)
-                .ToListAsync();
-
-            foreach (var token in refreshTokens)
-            {
-                token.IsRevoked = true;
-                token.RevokedAt = DateTime.UtcNow;
-            }
-
-            await _context.SaveChangesAsync();
-
-            _logger.LogInformation("User logged out: {UserId}", userId);
 
             return NoContent();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during logout");
-            return StatusCode(500, "An error occurred during logout");
+            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "Logout failed",
+                Detail = "An error occurred during logout"
+            });
         }
     }
 }

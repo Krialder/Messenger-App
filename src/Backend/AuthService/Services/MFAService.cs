@@ -1,4 +1,5 @@
 using AuthService.Data;
+using AuthService.Data.Entities;
 using MessengerContracts.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using OtpNet;

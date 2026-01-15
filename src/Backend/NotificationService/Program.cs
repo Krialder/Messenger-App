@@ -4,6 +4,7 @@ using NotificationService.Hubs;
 using NotificationService.Services;
 using Serilog;
 using System.Text;
+using MessengerCommon.Extensions;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -17,51 +18,29 @@ Log.Logger = new LoggerConfiguration()
 
 builder.Host.UseSerilog();
 
-// JWT Authentication
-string? jwtSecretKey = builder.Configuration["Jwt:SecretKey"];
-string? jwtIssuer = builder.Configuration["Jwt:Issuer"];
-string? jwtAudience = builder.Configuration["Jwt:Audience"];
+// JWT Authentication (using extension method)
+builder.Services.AddJwtAuthentication(builder.Configuration);
 
-if (string.IsNullOrEmpty(jwtSecretKey))
+// Configure JWT for SignalR
+builder.Services.ConfigureAll<Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions>(options =>
 {
-    throw new InvalidOperationException("JWT SecretKey is not configured.");
-}
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+    options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
     {
-        options.TokenValidationParameters = new TokenValidationParameters
+        OnMessageReceived = context =>
         {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtIssuer,
-            ValidAudience = jwtAudience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecretKey)),
-            ClockSkew = TimeSpan.Zero
-        };
+            var accessToken = context.Request.Query["access_token"];
 
-        // Configure JWT for SignalR
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
+            // If the request is for our hub
+            var path = context.HttpContext.Request.Path;
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs/notifications"))
             {
-                string? accessToken = context.Request.Query["access_token"];
-
-                // If the request is for our hub
-                PathString path = context.HttpContext.Request.Path;
-                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs/notifications"))
-                {
-                    context.Token = accessToken;
-                }
-
-                return Task.CompletedTask;
+                context.Token = accessToken;
             }
-        };
-    });
 
-builder.Services.AddAuthorization();
+            return Task.CompletedTask;
+        }
+    };
+});
 
 // SignalR
 builder.Services.AddSignalR();
@@ -69,20 +48,8 @@ builder.Services.AddSignalR();
 // RabbitMQ Consumer Background Service
 builder.Services.AddHostedService<RabbitMQConsumerService>();
 
-// CORS
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy =>
-    {
-        policy.WithOrigins(
-                "http://localhost:3000",
-                "https://localhost:7001",
-                "https://localhost:7002")
-            .AllowAnyMethod()
-            .AllowAnyHeader()
-            .AllowCredentials(); // Required for SignalR
-    });
-});
+// CORS (using extension method)
+builder.Services.AddDefaultCors(builder.Configuration);
 
 // Health checks
 builder.Services.AddHealthChecks();
@@ -91,9 +58,7 @@ WebApplication app = builder.Build();
 
 // Middleware
 app.UseSerilogRequestLogging();
-
 app.UseCors();
-
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -116,3 +81,6 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+// Make Program class accessible for integration tests
+public partial class Program { }

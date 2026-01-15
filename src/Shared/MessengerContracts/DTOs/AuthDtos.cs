@@ -23,44 +23,34 @@ public record RegisterResponse(
     Guid UserId,
     string Username,
     string Email,
-    string MasterKeySalt,  // Base64-encoded salt for Layer 2 encryption
-    string Message
+    string MasterKeySalt  // Base64-encoded salt for Layer 2 encryption
 );
 
 /// <summary>
 /// Request DTO for login
 /// </summary>
 public record LoginRequest(
-    string UsernameOrEmail,
+    string Email,
     string Password
 );
 
 /// <summary>
-/// Response DTO for successful login (no MFA)
+/// Response DTO for login (with or without MFA)
 /// </summary>
 public record LoginResponse(
+    UserDto User,
     string AccessToken,
     string RefreshToken,
     int ExpiresIn,  // Seconds
-    string TokenType,
-    UserDto User
-);
-
-/// <summary>
-/// Response DTO when MFA is required
-/// </summary>
-public record MfaRequiredResponse(
-    bool MfaRequired,
-    string SessionToken,  // Temporary token for MFA verification
-    List<MfaMethodDto> AvailableMethods
+    bool MfaRequired = false
 );
 
 /// <summary>
 /// Request DTO for MFA verification
 /// </summary>
 public record VerifyMfaRequest(
-    Guid MethodId,
-    string Code
+    string Email,
+    string MfaCode
 );
 
 /// <summary>
@@ -75,9 +65,8 @@ public record RefreshTokenRequest(
 /// </summary>
 public record TokenResponse(
     string AccessToken,
-    string? RefreshToken,
-    int ExpiresIn,
-    string TokenType
+    string RefreshToken,
+    int ExpiresIn
 );
 
 // ========================================
@@ -97,22 +86,12 @@ public record EnableTotpResponse(
 /// Request DTO for TOTP setup verification
 /// </summary>
 public record VerifyTotpSetupRequest(
-    string Secret,
-    string Code,
-    string? FriendlyName,
-    List<string>? RecoveryCodes  // From EnableTotpResponse
-);
-
-/// <summary>
-/// Request DTO for disabling MFA method
-/// </summary>
-public record DisableMfaRequest(
-    string Password  // Password confirmation required
+    string Code
 );
 
 /// <summary>
 /// Response DTO for recovery codes generation
 /// </summary>
 public record RecoveryCodesResponse(
-    List<string> Codes  // 10 plaintext codes (display once)
+    List<string> RecoveryCodes  // 10 plaintext codes (display once)
 );

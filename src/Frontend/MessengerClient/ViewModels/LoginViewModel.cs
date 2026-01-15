@@ -1,9 +1,12 @@
-using ReactiveUI;
 using System;
-using System.Reactive;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using System.Windows.Input;
 using MessengerClient.Services;
 using MessengerContracts.DTOs;
+using ContractsLoginResponse = MessengerContracts.DTOs.LoginResponse;
+using ContractsLoginRequest = MessengerContracts.DTOs.LoginRequest;
 
 namespace MessengerClient.ViewModels
 {
@@ -12,248 +15,158 @@ namespace MessengerClient.ViewModels
     /// Implements password-based login, TOTP/YubiKey verification, and master key derivation
     /// Follows ReactiveUI MVVM pattern with observable properties and reactive commands
     /// </summary>
-    public class LoginViewModel : ReactiveObject
+    public class LoginViewModel : INotifyPropertyChanged
     {
-        private readonly IAuthApiService _authApi;
-        private readonly SignalRService _signalR;
-        private readonly LocalStorageService _localStorage;
-        private readonly LocalCryptoService _crypto;
-
+        private readonly IAuthApiService _authApiService;
+        
+        // Events
+        public event EventHandler? LoginSuccessful;
+        public event EventHandler? NavigateToRegister;
+        
+        // Properties
         private string _email = string.Empty;
-        private string _password = string.Empty;
-        private string _errorMessage = string.Empty;
-        private bool _isLoading;
-        private bool _mfaRequired;
-        private string _mfaCode = string.Empty;
-        private string? _mfaSessionToken;
-
-        /// <summary>
-        /// User's email for login
-        /// </summary>
         public string Email
         {
             get => _email;
-            set => this.RaiseAndSetIfChanged(ref _email, value);
+            set => SetProperty(ref _email, value);
         }
-
-        /// <summary>
-        /// User's password for login
-        /// </summary>
+        
+        private string _password = string.Empty;
         public string Password
         {
             get => _password;
-            set => this.RaiseAndSetIfChanged(ref _password, value);
+            set => SetProperty(ref _password, value);
         }
-
-        /// <summary>
-        /// Error message to display on login failure
-        /// </summary>
-        public string ErrorMessage
-        {
-            get => _errorMessage;
-            set => this.RaiseAndSetIfChanged(ref _errorMessage, value);
-        }
-
-        /// <summary>
-        /// Indicates if the login or MFA verification is in progress
-        /// </summary>
-        public bool IsLoading
-        {
-            get => _isLoading;
-            set => this.RaiseAndSetIfChanged(ref _isLoading, value);
-        }
-
-        /// <summary>
-        /// Indicates if MFA is required for login
-        /// </summary>
-        public bool MfaRequired
-        {
-            get => _mfaRequired;
-            set => this.RaiseAndSetIfChanged(ref _mfaRequired, value);
-        }
-
-        /// <summary>
-        /// MFA code entered by the user for verification
-        /// </summary>
+        
+        private string _mfaCode = string.Empty;
         public string MfaCode
         {
             get => _mfaCode;
-            set => this.RaiseAndSetIfChanged(ref _mfaCode, value);
+            set => SetProperty(ref _mfaCode, value);
         }
-
-        /// <summary>
-        /// Command to execute login asynchronously
-        /// </summary>
-        public ReactiveCommand<Unit, Unit> LoginCommand { get; }
-
-        /// <summary>
-        /// Command to execute MFA verification asynchronously
-        /// </summary>
-        public ReactiveCommand<Unit, Unit> VerifyMfaCommand { get; }
-
-        /// <summary>
-        /// Command to navigate to the registration page
-        /// </summary>
-        public ReactiveCommand<Unit, Unit> NavigateToRegisterCommand { get; }
-
-        /// <summary>
-        /// Event triggered when login is successful
-        /// </summary>
-        public event EventHandler? LoginSuccessful;
-
-        /// <summary>
-        /// Event triggered to navigate to the registration page
-        /// </summary>
-        public event EventHandler? NavigateToRegister;
-
-        /// <summary>
-        /// LoginViewModel constructor
-        /// Initializes commands and sets up reactive property triggers
-        /// </summary>
-        /// <param name="authApi">Authentication API service</param>
-        /// <param name="signalR">SignalR service for real-time messaging</param>
-        /// <param name="localStorage">Local storage service for persisting data</param>
-        /// <param name="crypto">Crypto service for password and data encryption</param>
-        public LoginViewModel(
-            IAuthApiService authApi,
-            SignalRService signalR,
-            LocalStorageService localStorage,
-            LocalCryptoService crypto)
+        
+        private bool _mfaRequired = false;
+        public bool MfaRequired
         {
-            _authApi = authApi;
-            _signalR = signalR;
-            _localStorage = localStorage;
-            _crypto = crypto;
-
-            // Enable login command only when email and password are provided
-            IObservable<bool> canLogin = this.WhenAnyValue(
-                x => x.Email,
-                x => x.Password,
-                x => x.IsLoading,
-                (email, password, loading) => 
-                    !string.IsNullOrWhiteSpace(email) && 
-                    !string.IsNullOrWhiteSpace(password) && 
-                    !loading);
-
-            LoginCommand = ReactiveCommand.CreateFromTask(LoginAsync, canLogin);
-
-            // Enable MFA verification only when code is entered
-            IObservable<bool> canVerifyMfa = this.WhenAnyValue(
-                x => x.MfaCode,
-                x => x.IsLoading,
-                (code, loading) => !string.IsNullOrWhiteSpace(code) && !loading);
-
-            VerifyMfaCommand = ReactiveCommand.CreateFromTask(VerifyMfaAsync, canVerifyMfa);
-
-            NavigateToRegisterCommand = ReactiveCommand.Create(() =>
-            {
-                NavigateToRegister?.Invoke(this, EventArgs.Empty);
-            });
+            get => _mfaRequired;
+            set => SetProperty(ref _mfaRequired, value);
         }
-
-        /// <summary>
-        /// Step 1: Authenticate with username/password
-        /// If MFA is enabled, server responds with MfaRequired flag
-        /// </summary>
+        
+        private bool _isLoading = false;
+        public bool IsLoading
+        {
+            get => _isLoading;
+            set => SetProperty(ref _isLoading, value);
+        }
+        
+        private string _errorMessage = string.Empty;
+        public string ErrorMessage
+        {
+            get => _errorMessage;
+            set => SetProperty(ref _errorMessage, value);
+        }
+        
+        public bool CanLogin => !string.IsNullOrWhiteSpace(Email) && !string.IsNullOrWhiteSpace(Password) && !IsLoading;
+        public bool CanVerifyMfa => !string.IsNullOrWhiteSpace(MfaCode) && MfaCode.Length == 6 && !IsLoading;
+        
+        // Commands
+        public ICommand LoginCommand { get; }
+        public ICommand VerifyMfaCommand { get; }
+        public ICommand NavigateToRegisterCommand { get; }
+        
+        public LoginViewModel(IAuthApiService authApiService)
+        {
+            _authApiService = authApiService;
+            LoginCommand = new RelayCommand(async () => await LoginAsync(), () => CanLogin);
+            VerifyMfaCommand = new RelayCommand(async () => await VerifyMfaAsync(), () => CanVerifyMfa);
+            NavigateToRegisterCommand = new RelayCommand(() => NavigateToRegister?.Invoke(this, EventArgs.Empty));
+        }
+        
         private async Task LoginAsync()
         {
-            IsLoading = true;
-            ErrorMessage = string.Empty;
-
             try
             {
-                LoginRequest request = new LoginRequest(Email, Password);
-
-                LoginResponse response = await _authApi.LoginAsync(request);
-
-                await HandleSuccessfulLoginAsync(response);
-            }
-            catch (Refit.ApiException ex)
-            {
-                ErrorMessage = $"Login failed: {ex.Content ?? ex.Message}";
+                ErrorMessage = string.Empty;
+                IsLoading = true;
+                
+                var request = new ContractsLoginRequest(Email, Password);
+                var response = await _authApiService.LoginAsync(request);
+                
+                if (response.MfaRequired)
+                {
+                    // MFA required - save email for MFA verification
+                    MfaRequired = true;
+                    ErrorMessage = string.Empty;
+                }
+                else
+                {
+                    // Login successful without MFA
+                    await _authApiService.StoreTokensAsync(response.AccessToken, response.RefreshToken);
+                    LoginSuccessful?.Invoke(this, EventArgs.Empty);
+                }
             }
             catch (Exception ex)
             {
                 ErrorMessage = $"Login failed: {ex.Message}";
+                MfaRequired = false;
             }
             finally
             {
                 IsLoading = false;
             }
         }
-
-        /// <summary>
-        /// Step 2: Verify MFA code (TOTP, YubiKey, or Recovery Code)
-        /// Called after initial login if MFA is enabled
-        /// </summary>
+        
         private async Task VerifyMfaAsync()
         {
-            IsLoading = true;
-            ErrorMessage = string.Empty;
-
             try
             {
-                VerifyMfaRequest request = new VerifyMfaRequest(Guid.Empty, MfaCode);
-
-                LoginResponse response = await _authApi.VerifyMfaAsync(request);
-                await HandleSuccessfulLoginAsync(response);
-            }
-            catch (Refit.ApiException ex)
-            {
-                ErrorMessage = $"MFA verification failed: {ex.Content ?? ex.Message}";
+                ErrorMessage = string.Empty;
+                IsLoading = true;
+                
+                var request = new VerifyMfaRequest(Email, MfaCode);
+                var response = await _authApiService.VerifyMfaAsync(request);
+                
+                // Store tokens securely
+                await _authApiService.StoreTokensAsync(response.AccessToken, response.RefreshToken);
+                LoginSuccessful?.Invoke(this, EventArgs.Empty);
             }
             catch (Exception ex)
             {
                 ErrorMessage = $"MFA verification failed: {ex.Message}";
+                MfaCode = string.Empty; // Clear invalid code
             }
             finally
             {
                 IsLoading = false;
             }
         }
-
-        /// <summary>
-        /// Post-authentication: Derive master key and initialize local crypto
-        /// Master key derivation: Argon2id(password, userSalt)
-        /// Master key stays in RAM only (cleared on logout)
-        /// </summary>
-        private async Task HandleSuccessfulLoginAsync(LoginResponse response)
+        
+        // INotifyPropertyChanged implementation
+        public event PropertyChangedEventHandler? PropertyChanged;
+        
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
-            // Validate response
-            if (response?.User == null)
-            {
-                ErrorMessage = "Invalid server response";
-                return;
-            }
-
-            // Save JWT access token for API authentication
-            await _localStorage.SaveTokenAsync(response.AccessToken);
-
-            // Generate salt for master key derivation
-            byte[] salt = _crypto.GenerateSalt();
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+        
+        protected bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+        {
+            if (Equals(field, value)) return false;
+            field = value;
+            OnPropertyChanged(propertyName);
             
-            // Derive master key from password (Layer 2 encryption)
-            byte[] masterKey = await _crypto.DeriveMasterKeyAsync(Password, salt);
-
-            // Save encrypted user profile locally
-            await _localStorage.SaveUserProfileAsync(
-                response.User.Id,
-                response.User.Email,
-                response.User.Username,
-                salt,
-                Array.Empty<byte>()
-            );
-
-            // Establish SignalR connection for real-time messaging
-            bool signalRConnected = await _signalR.ConnectAsync(response.AccessToken);
-            if (!signalRConnected)
+            // Notify command can execute changed
+            if (propertyName is nameof(Email) or nameof(Password) or nameof(IsLoading))
             {
-                // Log warning but don't block login - user can still use app offline
-                Console.WriteLine("Warning: SignalR connection failed - real-time features unavailable");
+                OnPropertyChanged(nameof(CanLogin));
             }
-
-            // Notify UI to navigate to main window
-            LoginSuccessful?.Invoke(this, EventArgs.Empty);
+            
+            if (propertyName is nameof(MfaCode) or nameof(IsLoading))
+            {
+                OnPropertyChanged(nameof(CanVerifyMfa));
+            }
+            
+            return true;
         }
     }
 }

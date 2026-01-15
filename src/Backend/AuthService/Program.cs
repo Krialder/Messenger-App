@@ -1,111 +1,138 @@
 using AuthService.Data;
 using AuthService.Services;
 using MessengerContracts.Interfaces;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using System.Text;
+using Serilog;
+using AspNetCoreRateLimit;
+using FluentValidation;
+using FluentValidation.AspNetCore;
+using MessengerCommon.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ============================================
-// 1. CONTROLLERS & API CONFIGURATION
-// ============================================
+// Configure Serilog
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+
+// Add services
 builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
-// ============================================
-// 2. DATABASE - PostgreSQL with EF Core
-// ============================================
+// FluentValidation
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+// Database
+var connectionString = builder.Configuration.GetConnectionString("PostgreSQL") 
+    ?? throw new InvalidOperationException("PostgreSQL connection string not configured");
 builder.Services.AddDbContext<AuthDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(connectionString));
 
-// ============================================
-// 3. JWT AUTHENTICATION
-// ============================================
-var jwtSettings = builder.Configuration.GetSection("JWT");
+// JWT Authentication (using extension method)
+builder.Services.AddJwtAuthentication(builder.Configuration);
 
-// Security: Validate JWT secret strength (minimum 256 bits)
-var jwtSecret = jwtSettings["Secret"];
-if (string.IsNullOrEmpty(jwtSecret) || Encoding.UTF8.GetBytes(jwtSecret).Length < 32)
+// Validate TOTP Encryption Key
+var totpEncryptionKey = Environment.GetEnvironmentVariable("TOTP_ENCRYPTION_KEY") 
+    ?? builder.Configuration["Security:TotpEncryptionKey"];
+
+if (string.IsNullOrEmpty(totpEncryptionKey))
+{
+    Log.Warning("TOTP_ENCRYPTION_KEY not configured. Using development fallback (NOT FOR PRODUCTION!)");
+}
+else if (totpEncryptionKey.Length < 32)
 {
     throw new InvalidOperationException(
-        "JWT Secret must be at least 32 characters (256 bits). " +
+        "TOTP_ENCRYPTION_KEY must be at least 32 characters. " +
+        "Set TOTP_ENCRYPTION_KEY environment variable with a secure random key. " +
         "Generate with: openssl rand -base64 64");
 }
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtSettings["Issuer"],
-            ValidAudience = jwtSettings["Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwtSecret)),
-            ClockSkew = TimeSpan.Zero  // No tolerance for expired tokens
-        };
-    });
-
-// ============================================
-// 4. CORS - Cross-Origin Resource Sharing
-// ============================================
-builder.Services.AddCors(options =>
+else
 {
-    options.AddDefaultPolicy(policy =>
+    Log.Information("TOTP encryption key configured successfully");
+}
+
+// Rate Limiting
+builder.Services.AddMemoryCache();
+builder.Services.Configure<IpRateLimitOptions>(options =>
+{
+    options.EnableEndpointRateLimiting = true;
+    options.StackBlockedRequests = false;
+    options.HttpStatusCode = 429;
+    options.RealIpHeader = "X-Real-IP";
+    options.ClientIdHeader = "X-ClientId";
+    options.GeneralRules = new List<RateLimitRule>
     {
-        policy.WithOrigins("http://localhost:3000", "http://localhost:5173") // Frontend URLs
-              .AllowAnyMethod()
-              .AllowAnyHeader()
-              .AllowCredentials();
-    });
+        new RateLimitRule
+        {
+            Endpoint = "POST:/api/auth/login",
+            Limit = 5,
+            Period = "15m"
+        },
+        new RateLimitRule
+        {
+            Endpoint = "POST:/api/auth/register",
+            Limit = 3,
+            Period = "1h"
+        },
+        new RateLimitRule
+        {
+            Endpoint = "POST:/api/auth/verify-mfa",
+            Limit = 10,
+            Period = "15m"
+        },
+        new RateLimitRule
+        {
+            Endpoint = "POST:/api/mfa/verify-totp-setup",
+            Limit = 5,
+            Period = "15m"
+        }
+    };
 });
 
-// ============================================
-// 5. DEPENDENCY INJECTION - Application Services
-// ============================================
-builder.Services.AddScoped<IMfaService, MFAService>();
+builder.Services.Configure<IpRateLimitPolicies>(options =>
+{
+    options.IpRules = new List<IpRateLimitPolicy>();
+});
+
+builder.Services.AddInMemoryRateLimiting();
+builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
+
+// Services
 builder.Services.AddScoped<IPasswordHasher, Argon2PasswordHasher>();
 builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IMfaService, MFAService>();
 
-// ============================================
-// 6. HEALTH CHECKS
-// ============================================
+// Swagger (using extension method)
+builder.Services.AddSwaggerWithJwt("Auth API", "v1");
+
+// CORS (using extension method)
+builder.Services.AddDefaultCors(builder.Configuration);
+
+// Health checks
 builder.Services.AddHealthChecks()
-    .AddNpgSql(builder.Configuration.GetConnectionString("DefaultConnection")!);
+    .AddNpgSql(connectionString);
 
 var app = builder.Build();
 
-// ============================================
-// MIDDLEWARE PIPELINE CONFIGURATION
-// ============================================
-
-// Development-only: Swagger UI for API documentation
+// Middleware
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
-// Enforce HTTPS for production security
-app.UseHttpsRedirection();
+// Rate limiting middleware (must be early in pipeline)
+app.UseIpRateLimiting();
 
-// Enable CORS (must be before Authentication)
 app.UseCors();
-
-// Enable authentication and authorization
 app.UseAuthentication();
 app.UseAuthorization();
-
-// Map controller routes
 app.MapControllers();
-
-// Health check endpoint for monitoring
 app.MapHealthChecks("/health");
 
 app.Run();
+
+// Make Program class accessible for integration tests
+public partial class Program { }

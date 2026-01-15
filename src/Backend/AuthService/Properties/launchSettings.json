@@ -3,10 +3,12 @@
     "AuthService": {
       "commandName": "Project",
       "launchBrowser": true,
+      "launchUrl": "swagger",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "TOTP_ENCRYPTION_KEY": "8Kv2NpQwXjYrZ9hTsUfG5mLbA3DoCx7E"
       },
-      "applicationUrl": "https://localhost:58911;http://localhost:58921"
+      "applicationUrl": "https://localhost:7001;http://localhost:5001"
     }
   }
 }

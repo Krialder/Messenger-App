@@ -1,3 +1,5 @@
+using System;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.SignalR.Client;
 using MessengerContracts.DTOs;
 
@@ -12,7 +14,7 @@ namespace MessengerClient.Services
         private HubConnection? _hubConnection;
         private readonly string _hubUrl;
 
-        public event Func<MessageDto, Task>? OnMessageReceived;
+        public event Func<MessengerContracts.DTOs.MessageDto, Task>? OnMessageReceived;
         public event Func<Guid, Task>? OnTypingIndicator;
         public event Func<Guid, Task>? OnUserOnline;
         public event Func<Guid, Task>? OnUserOffline;
@@ -46,7 +48,7 @@ namespace MessengerClient.Services
                     })
                     .Build();
 
-                _hubConnection.On<MessageDto>("NewMessage", async message =>
+                _hubConnection.On<MessengerContracts.DTOs.MessageDto>("NewMessage", async message =>
                 {
                     if (OnMessageReceived != null)
                         await OnMessageReceived.Invoke(message);

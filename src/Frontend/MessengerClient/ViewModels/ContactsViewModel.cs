@@ -1,5 +1,6 @@
 using ReactiveUI;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Reactive;
 using System.Threading.Tasks;
@@ -74,27 +75,27 @@ namespace MessengerClient.ViewModels
             try
             {
                 IsLoading = true;
-                List<ContactDto> contacts = await _userApi.GetContactsAsync($"Bearer {_jwtToken}");
+                List<MessengerClient.Services.ContactDto> contacts = await _userApi.GetContactsAsync($"Bearer {_jwtToken}");
 
                 Contacts.Clear();
-                foreach (ContactDto contact in contacts)
+                foreach (var contact in contacts)
                 {
                     await _localStorage.SaveContactAsync(new LocalContact
                     {
                         Id = contact.Id,
                         UserId = contact.UserId,
-                        DisplayName = contact.DisplayName,
-                        Email = contact.Email,
-                        IsOnline = false
+                        DisplayName = contact.DisplayName ?? string.Empty,
+                        Email = contact.Email ?? string.Empty,
+                        IsOnline = contact.IsOnline
                     });
 
                     Contacts.Add(new ContactViewModel
                     {
                         Id = contact.Id,
                         UserId = contact.UserId,
-                        DisplayName = contact.DisplayName,
+                        DisplayName = contact.DisplayName ?? string.Empty,
                         Email = contact.Email ?? string.Empty,
-                        IsOnline = false
+                        IsOnline = contact.IsOnline
                     });
                 }
             }
@@ -114,7 +115,8 @@ namespace MessengerClient.ViewModels
 
             try
             {
-                List<UserDto> users = await _userApi.SearchUsersAsync($"Bearer {_jwtToken}", SearchQuery);
+                List<UserDto> users = await _userApi.SearchUsersAsync(SearchQuery, $"Bearer {_jwtToken}");
+                // TODO: Handle search results
             }
             catch (Exception ex)
             {
@@ -128,9 +130,9 @@ namespace MessengerClient.ViewModels
 
             try
             {
-                AddContactRequest request = new AddContactRequest(contact.UserId);
+                var request = new MessengerClient.Services.AddContactRequest(contact.UserId);
 
-                ContactDto newContact = await _userApi.AddContactAsync($"Bearer {_jwtToken}", request);
+                var newContact = await _userApi.AddContactAsync(request, $"Bearer {_jwtToken}");
                 await LoadContactsAsync();
             }
             catch (Exception ex)
@@ -145,7 +147,7 @@ namespace MessengerClient.ViewModels
 
             try
             {
-                await _userApi.DeleteContactAsync($"Bearer {_jwtToken}", contact.Id);
+                await _userApi.DeleteContactAsync(contact.Id, $"Bearer {_jwtToken}");
                 Contacts.Remove(contact);
             }
             catch (Exception ex)

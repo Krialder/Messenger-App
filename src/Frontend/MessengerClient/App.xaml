@@ -24,6 +24,9 @@
             <converters:MessageAlignmentConverter x:Key="MessageAlignmentConverter"/>
             <converters:MessageBackgroundConverter x:Key="MessageBackgroundConverter"/>
             <converters:TimestampConverter x:Key="TimestampConverter"/>
+            <converters:FirstCharConverter x:Key="FirstCharConverter"/>
+            <converters:TimeAgoConverter x:Key="TimeAgoConverter"/>
+            <converters:MessageTextColorConverter x:Key="MessageTextColorConverter"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

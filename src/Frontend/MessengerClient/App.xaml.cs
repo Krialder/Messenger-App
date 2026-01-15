@@ -1,4 +1,4 @@
-using System.Windows;
+using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using MessengerClient.Services;
@@ -6,6 +6,7 @@ using MessengerClient.ViewModels;
 using MessengerClient.Views;
 using MessengerClient.Data;
 using Refit;
+using System.Windows;
 
 namespace MessengerClient
 {
@@ -43,6 +44,9 @@ namespace MessengerClient
         {
             string gatewayUrl = "https://localhost:7001";
 
+            // Fixed: Correct Refit service registration for .NET 8
+            services.AddHttpClient();
+            
             services.AddRefitClient<IAuthApiService>()
                 .ConfigureHttpClient(c => c.BaseAddress = new Uri(gatewayUrl));
 

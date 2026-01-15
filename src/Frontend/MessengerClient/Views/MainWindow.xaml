@@ -1,0 +1,129 @@
+<Window x:Class="MessengerClient.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        xmlns:viewModels="clr-namespace:MessengerClient.ViewModels"
+        mc:Ignorable="d"
+        Title="Secure Messenger" Height="800" Width="1200"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource MaterialDesignPaper}"
+        d:DataContext="{d:DesignInstance Type=viewModels:MainViewModel}">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="80"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Navigation Sidebar -->
+        <Border Grid.Column="0" Background="{DynamicResource PrimaryHueDarkBrush}">
+            <StackPanel Margin="8,16">
+                
+                <!-- Chat Button -->
+                <Button Height="50" Margin="5"
+                        Command="{Binding NavigateToChatCommand}"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        ToolTip="Chats">
+                    <materialDesign:PackIcon Kind="Chat" Width="24" Height="24" Foreground="White"/>
+                </Button>
+
+                <!-- Contacts Button -->
+                <Button Height="50" Margin="5"
+                        Command="{Binding NavigateToContactsCommand}"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        ToolTip="Kontakte">
+                    <materialDesign:PackIcon Kind="AccountMultiple" Width="24" Height="24" Foreground="White"/>
+                </Button>
+
+                <!-- Settings Button -->
+                <Button Height="50" Margin="5"
+                        Command="{Binding NavigateToSettingsCommand}"
+                        Style="{StaticResource MaterialDesignIconButton}"
+                        ToolTip="Einstellungen"
+                        VerticalAlignment="Bottom">
+                    <materialDesign:PackIcon Kind="Settings" Width="24" Height="24" Foreground="White"/>
+                </Button>
+
+            </StackPanel>
+        </Border>
+
+        <!-- Content Area -->
+        <Grid Grid.Column="1">
+            
+            <!-- Chat View -->
+            <Border Background="{DynamicResource MaterialDesignCardBackground}"
+                    Visibility="{Binding IsChatViewActive, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Chat Header -->
+                    <Border Grid.Row="0" Background="{DynamicResource MaterialDesignCardBackground}" 
+                           BorderThickness="0,0,0,1" BorderBrush="{DynamicResource MaterialDesignDivider}"
+                           Height="64" Padding="16">
+                        <TextBlock Text="Secure Messenger - Chat" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                    </Border>
+
+                    <!-- Messages Area -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="16">
+                        <TextBlock Text="Chat wird hier angezeigt..." 
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   FontSize="16" Opacity="0.6"/>
+                    </ScrollViewer>
+
+                    <!-- Message Input -->
+                    <Border Grid.Row="2" Background="{DynamicResource MaterialDesignCardBackground}" 
+                           BorderThickness="0,1,0,0" BorderBrush="{DynamicResource MaterialDesignDivider}"
+                           Padding="16">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox Grid.Column="0" 
+                                    materialDesign:HintAssist.Hint="Nachricht schreiben..."
+                                    Style="{StaticResource MaterialDesignOutlinedTextBox}"/>
+
+                            <Button Grid.Column="1" 
+                                   Style="{StaticResource MaterialDesignIconButton}"
+                                   Margin="8,0,0,0">
+                                <materialDesign:PackIcon Kind="Send"/>
+                            </Button>
+                        </Grid>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- Contacts View -->
+            <Border Background="{DynamicResource MaterialDesignCardBackground}"
+                    Visibility="{Binding IsContactsViewActive, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid Margin="32">
+                    <StackPanel>
+                        <TextBlock Text="Kontakte" FontSize="24" FontWeight="Bold" Margin="0,0,0,16"/>
+                        <TextBlock Text="Ihre Kontakte werden hier angezeigt..." 
+                                   FontSize="16" Opacity="0.6"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Settings View -->
+            <Border Background="{DynamicResource MaterialDesignCardBackground}"
+                    Visibility="{Binding IsSettingsViewActive, Converter={StaticResource BoolToVisibilityConverter}}">
+                <Grid Margin="32">
+                    <StackPanel>
+                        <TextBlock Text="Einstellungen" FontSize="24" FontWeight="Bold" Margin="0,0,0,16"/>
+                        <TextBlock Text="App-Einstellungen werden hier konfiguriert..." 
+                                   FontSize="16" Opacity="0.6"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+        </Grid>
+    </Grid>
+</Window>

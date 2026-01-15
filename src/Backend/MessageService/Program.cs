@@ -1,12 +1,10 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
-using System.Text;
 using System.Text.Json;
 using MessageService.Data;
 using MessageService.Hubs;
 using MessageService.Services;
+using AspNetCoreRateLimit;
+using MessengerCommon.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,108 +40,91 @@ builder.Services.AddDbContext<MessageDbContext>(options =>
 builder.Services.AddSignalR();
 
 // ========================================
-// 4. CORS (Allow SignalR from frontend)
+// 4. Rate Limiting
 // ========================================
-builder.Services.AddCors(options =>
+builder.Services.AddMemoryCache();
+builder.Services.Configure<IpRateLimitOptions>(options =>
 {
-    options.AddDefaultPolicy(policy =>
+    options.EnableEndpointRateLimiting = true;
+    options.StackBlockedRequests = false;
+    options.HttpStatusCode = 429;
+    options.RealIpHeader = "X-Real-IP";
+    options.ClientIdHeader = "X-ClientId";
+    options.GeneralRules = new List<RateLimitRule>
     {
-        policy.WithOrigins(
-                "http://localhost:3000",
-                "https://localhost:7001",
-                "https://localhost:7002"
-            )
-            .AllowAnyMethod()
-            .AllowAnyHeader()
-            .AllowCredentials();
-    });
-});
-
-// ========================================
-// 5. JWT Authentication (same as AuthService)
-// ========================================
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
+        new RateLimitRule
         {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-            ValidIssuer = builder.Configuration["Jwt:Issuer"],
-            ValidAudience = builder.Configuration["Jwt:Audience"],
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(builder.Configuration["Jwt:SecretKey"]!)),
-            ClockSkew = TimeSpan.Zero  // No tolerance for expired tokens
-        };
-
-        // Enable JWT authentication for SignalR (via query string)
-        options.Events = new JwtBearerEvents
+            Endpoint = "POST:/api/messages",
+            Limit = 60,
+            Period = "1m"
+        },
+        new RateLimitRule
         {
-            OnMessageReceived = context =>
-            {
-                var accessToken = context.Request.Query["access_token"];
-                var path = context.HttpContext.Request.Path;
-                
-                // If request is for SignalR hub and token is present
-                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
-                {
-                    context.Token = accessToken;
-                }
-                
-                return Task.CompletedTask;
-            }
-        };
-    });
-
-// ========================================
-// 6. Swagger/OpenAPI
-// ========================================
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "MessageService API",
-        Version = "v1",
-        Description = "Secure Messenger - Message & Group Chat API"
-    });
-
-    // Add JWT authentication to Swagger
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
-        Name = "Authorization",
-        In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
-
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
+            Endpoint = "POST:/api/groups",
+            Limit = 10,
+            Period = "1h"
+        },
+        new RateLimitRule
         {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference
-                {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
+            Endpoint = "POST:/api/groups/*/members",
+            Limit = 30,
+            Period = "1h"
         }
-    });
+    };
+});
+
+builder.Services.Configure<IpRateLimitPolicies>(options =>
+{
+    options.IpRules = new List<IpRateLimitPolicy>();
+});
+
+builder.Services.AddInMemoryRateLimiting();
+builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
+
+// ========================================
+// 5. CORS (using extension method)
+// ========================================
+builder.Services.AddDefaultCors(builder.Configuration);
+
+// ========================================
+// 6. JWT Authentication (using extension method with SignalR support)
+// ========================================
+builder.Services.AddJwtAuthentication(builder.Configuration);
+
+// Configure SignalR JWT from query string
+builder.Services.ConfigureAll<Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerOptions>(options =>
+{
+    options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+            
+            // If request is for SignalR hub and token is present
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/hubs"))
+            {
+                context.Token = accessToken;
+            }
+            
+            return Task.CompletedTask;
+        }
+    };
 });
 
 // ========================================
-// 7. Health Checks
+// 7. Swagger/OpenAPI (using extension method)
+// ========================================
+builder.Services.AddSwaggerWithJwt("MessageService API", "v1");
+
+// ========================================
+// 8. Health Checks
 // ========================================
 builder.Services.AddHealthChecks()
     .AddNpgSql(builder.Configuration.GetConnectionString("MessageDatabase")!);
 
 // ========================================
-// 8. Logging
+// 9. Logging
 // ========================================
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -179,6 +160,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Rate limiting middleware (must be early in pipeline)
+app.UseIpRateLimiting();
 
 // CORS must be before Authentication/Authorization
 app.UseCors();

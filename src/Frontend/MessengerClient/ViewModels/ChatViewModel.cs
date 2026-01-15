@@ -4,9 +4,12 @@ using System.Collections.ObjectModel;
 using System.Reactive;
 using System.Threading.Tasks;
 using System.Linq;
+using System.Collections.Generic;
 using MessengerClient.Services;
 using MessengerClient.Data;
 using MessengerContracts.DTOs;
+using ContractsMessageDto = MessengerContracts.DTOs.MessageDto;
+using ContractsConversationDto = MessengerContracts.DTOs.ConversationDto;
 
 namespace MessengerClient.ViewModels
 {
@@ -95,7 +98,7 @@ namespace MessengerClient.ViewModels
             SendFileCommand = ReactiveCommand.CreateFromTask(SendFileAsync);
             RefreshConversationsCommand = ReactiveCommand.CreateFromTask(LoadConversationsAsync);
 
-            _signalR.OnMessageReceived += HandleNewMessageAsync;
+            _signalR.OnMessageReceived += async (message) => await HandleNewMessageAsync(message);
 
             _ = InitializeAsync();
         }
@@ -113,10 +116,10 @@ namespace MessengerClient.ViewModels
             try
             {
                 IsLoading = true;
-                List<ConversationDto> conversations = await _messageApi.GetConversationsAsync($"Bearer {_jwtToken}");
+                List<ContractsConversationDto> conversations = await _messageApi.GetConversationsAsync($"Bearer {_jwtToken}");
 
                 Conversations.Clear();
-                foreach (ConversationDto conv in conversations)
+                foreach (ContractsConversationDto conv in conversations)
                 {
                     await _localStorage.SaveConversationAsync(new LocalConversation
                     {
@@ -124,15 +127,15 @@ namespace MessengerClient.ViewModels
                         Type = conv.Type.ToString(),
                         Name = conv.Name,
                         CreatedAt = conv.CreatedAt,
-                        LastMessageAt = conv.LastMessageAt
+                        LastMessageAt = conv.LastMessage?.Timestamp // Changed from LastMessageAt
                     });
 
                     Conversations.Add(new ConversationViewModel
                     {
                         Id = conv.Id,
                         Name = conv.Name ?? "Unknown",
-                        LastMessage = conv.LastMessagePreview ?? string.Empty,
-                        LastMessageTime = conv.LastMessageAt ?? conv.CreatedAt,
+                        LastMessage = conv.LastMessage?.EncryptedContent ?? string.Empty, // Changed from LastMessagePreview
+                        LastMessageTime = conv.LastMessage?.Timestamp ?? conv.CreatedAt, // Changed from LastMessageAt
                         UnreadCount = conv.UnreadCount
                     });
                 }
@@ -156,9 +159,9 @@ namespace MessengerClient.ViewModels
                 IsLoading = true;
                 Messages.Clear();
 
-                List<MessageDto> messages = await _messageApi.GetMessagesAsync($"Bearer {_jwtToken}", conversationId);
+                List<ContractsMessageDto> messages = await _messageApi.GetMessagesAsync(conversationId, $"Bearer {_jwtToken}");
 
-                foreach (MessageDto msg in messages)
+                foreach (ContractsMessageDto msg in messages)
                 {
                     string decryptedContent = await DecryptMessageAsync(msg);
 
@@ -167,7 +170,7 @@ namespace MessengerClient.ViewModels
                         Id = msg.Id,
                         Content = decryptedContent,
                         SenderId = msg.SenderId,
-                        Timestamp = msg.SentAt,
+                        Timestamp = msg.Timestamp, // Changed from SentAt to Timestamp
                         IsSent = msg.SenderId == (await GetCurrentUserIdAsync()),
                         IsDelivered = msg.Status == MessageStatus.Delivered || msg.Status == MessageStatus.Read,
                         IsRead = msg.Status == MessageStatus.Read
@@ -188,13 +191,16 @@ namespace MessengerClient.ViewModels
         {
             if (SelectedConversation == null || string.IsNullOrEmpty(_jwtToken)) return;
 
+            string plaintext = string.Empty; // Declare at the start
             try
             {
-                string plaintext = MessageText;
+                plaintext = MessageText;
                 MessageText = string.Empty;
 
+                // Layer 2: Local storage encryption
                 string encryptedLocal = await _crypto.EncryptLocalDataAsync(plaintext);
 
+                // Get recipient public key
                 LocalContact? recipient = await GetRecipientForConversationAsync(SelectedConversation.Id);
                 if (recipient?.PublicKey == null)
                 {
@@ -202,30 +208,19 @@ namespace MessengerClient.ViewModels
                     return;
                 }
 
-                EncryptedMessageDto encrypted = await _cryptoApi.EncryptTransportAsync(
-                    $"Bearer {_jwtToken}",
-                    new EncryptRequest
-                    {
-                        Plaintext = encryptedLocal,
-                        RecipientPublicKey = recipient.PublicKey
-                    }
-                );
+                // Layer 1: Transport encryption
+                var encryptRequest = new EncryptRequest(encryptedLocal, Convert.ToBase64String(recipient.PublicKey));
+                EncryptResponse encrypted = await _cryptoApi.EncryptAsync(encryptRequest, $"Bearer {_jwtToken}");
 
-                SendMessageRequest request = new SendMessageRequest
-                {
-                    ConversationId = SelectedConversation.Id,
-                    Content = Convert.ToBase64String(encrypted.Ciphertext),
-                    Nonce = encrypted.Nonce,
-                    Tag = encrypted.Tag,
-                    EphemeralPublicKey = encrypted.EphemeralPublicKey
-                };
+                // Send message
+                var sendRequest = new MessageServiceSendMessageRequest(SelectedConversation.Id, encrypted.EncryptedData, null);
+                ContractsMessageDto response = await _messageApi.SendMessageAsync(sendRequest, $"Bearer {_jwtToken}");
 
-                MessageResponse response = await _messageApi.SendMessageAsync($"Bearer {_jwtToken}", request);
-
+                // Add to UI
                 Guid currentUserId = await GetCurrentUserIdAsync();
                 Messages.Add(new MessageViewModel
                 {
-                    Id = response.MessageId,
+                    Id = response.Id,
                     Content = plaintext,
                     SenderId = currentUserId,
                     Timestamp = DateTime.UtcNow,
@@ -234,9 +229,10 @@ namespace MessengerClient.ViewModels
                     IsRead = false
                 });
 
+                // Save locally
                 await _localStorage.SaveMessageAsync(new LocalMessage
                 {
-                    Id = response.MessageId,
+                    Id = response.Id,
                     ConversationId = SelectedConversation.Id,
                     SenderId = currentUserId,
                     Content = plaintext,
@@ -248,7 +244,7 @@ namespace MessengerClient.ViewModels
             catch (Exception ex)
             {
                 Console.WriteLine($"Error sending message: {ex.Message}");
-                MessageText = MessageText;
+                MessageText = plaintext; // Restore message on error
             }
         }
 
@@ -257,7 +253,7 @@ namespace MessengerClient.ViewModels
             await Task.CompletedTask;
         }
 
-        private async Task HandleNewMessageAsync(MessageDto message)
+        private async Task HandleNewMessageAsync(ContractsMessageDto message)
         {
             try
             {
@@ -269,7 +265,7 @@ namespace MessengerClient.ViewModels
                     Id = message.Id,
                     Content = decryptedContent,
                     SenderId = message.SenderId,
-                    Timestamp = message.SentAt,
+                    Timestamp = message.Timestamp, // Changed from SentAt
                     IsSent = message.SenderId == currentUserId,
                     IsDelivered = true,
                     IsRead = false
@@ -281,7 +277,7 @@ namespace MessengerClient.ViewModels
                     ConversationId = message.ConversationId,
                     SenderId = message.SenderId,
                     Content = decryptedContent,
-                    Timestamp = message.SentAt,
+                    Timestamp = message.Timestamp, // Changed from SentAt
                     IsSent = false,
                     IsDelivered = true
                 });
@@ -290,7 +286,7 @@ namespace MessengerClient.ViewModels
                 if (conversation != null)
                 {
                     conversation.LastMessage = decryptedContent;
-                    conversation.LastMessageTime = message.SentAt;
+                    conversation.LastMessageTime = message.Timestamp; // Changed from SentAt
                     conversation.UnreadCount++;
                 }
             }
@@ -300,27 +296,20 @@ namespace MessengerClient.ViewModels
             }
         }
 
-        private async Task<string> DecryptMessageAsync(MessageDto message)
+        private async Task<string> DecryptMessageAsync(ContractsMessageDto message)
         {
             if (string.IsNullOrEmpty(_jwtToken)) return "[Encrypted]";
 
             try
             {
+                // Layer 1: Transport decryption
                 LocalKeyPair? keyPair = await _localStorage.GetActiveKeyPairAsync();
-                if (keyPair == null) return "[No key]";
+                if (keyPair == null) return "[No key]" ;
 
-                DecryptResponse response = await _cryptoApi.DecryptTransportAsync(
-                    $"Bearer {_jwtToken}",
-                    new DecryptRequest
-                    {
-                        Ciphertext = Convert.FromBase64String(message.Content),
-                        Nonce = message.Nonce,
-                        Tag = message.Tag,
-                        EphemeralPublicKey = message.EphemeralPublicKey,
-                        PrivateKey = keyPair.PrivateKey
-                    }
-                );
+                var decryptRequest = new DecryptRequest(message.EncryptedContent, string.Empty, Convert.ToBase64String(keyPair.PrivateKey)); // Changed from Content
+                DecryptResponse response = await _cryptoApi.DecryptAsync(decryptRequest, $"Bearer {_jwtToken}");
 
+                // Layer 2: Local storage decryption
                 string decryptedLocal = await _crypto.DecryptLocalDataAsync(response.Plaintext);
                 return decryptedLocal;
             }
@@ -333,7 +322,7 @@ namespace MessengerClient.ViewModels
         private async Task<LocalContact?> GetRecipientForConversationAsync(Guid conversationId)
         {
             List<LocalContact> contacts = await _localStorage.GetContactsAsync();
-            return contacts.FirstOrDefault();
+            return contacts.FirstOrDefault(); // TODO: Proper recipient lookup
         }
 
         private async Task<Guid> GetCurrentUserIdAsync()

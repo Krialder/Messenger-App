@@ -46,6 +46,7 @@ secrets.json
 .env
 *.env
 !.env.example
+secrets.txt
 
 # OS files
 .DS_Store
@@ -58,6 +59,7 @@ desktop.ini
 *.swo
 *~
 .vscode/
+.obsidian/
 
 # Node modules (if any)
 node_modules/

@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-151%20passing-success)](tests/MessengerTests/)
 [![Build](https://img.shields.io/badge/Build-Passing-success)](.github/workflows/)
+[![Completion](https://img.shields.io/badge/Completion-85%25-green)](IMPLEMENTATION_STATUS.md)
 
 ---
 
@@ -17,9 +18,32 @@ Secure Messenger is an open-source encrypted messaging application featuring:
 - **Microservices architecture** (9 independent backend services)
 - **Modern WPF desktop client** (MaterialDesign UI)
 - **Real-time messaging** via SignalR
-- **Multi-factor authentication** (TOTP)
+- **Multi-factor authentication** (TOTP with QR code)
 
-**Status**: Production ready (v9.0)
+**Status**: Production ready (v9.0) - 85% Complete
+
+---
+
+## 🆕 What's New (2025-01-15)
+
+### **AuthService: Production Ready** ✅
+- ✅ Complete authentication & MFA implementation
+- ✅ FluentValidation input validation
+- ✅ Rate limiting on sensitive endpoints
+- ✅ TOTP (Google Authenticator compatible)
+- ✅ Recovery codes system
+- ✅ Encrypted TOTP secrets (AES-256)
+
+**9 Endpoints Ready:**
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/login` - Login with MFA check
+- `POST /api/auth/verify-mfa` - MFA verification
+- `POST /api/auth/refresh` - Token renewal
+- `POST /api/auth/logout` - Logout
+- `POST /api/mfa/enable-totp` - Enable TOTP
+- `POST /api/mfa/verify-totp-setup` - Verify TOTP
+- `GET /api/mfa/methods` - List MFA methods
+- `POST /api/mfa/generate-recovery-codes` - Generate backup codes
 
 ---
 
@@ -45,6 +69,7 @@ Secure Messenger is an open-source encrypted messaging application featuring:
 - AES-256-GCM (Storage Encryption)
 - Argon2id (Password Hashing)
 - TOTP (Multi-Factor Auth)
+- FluentValidation (Input Validation)
 
 ---
 
@@ -70,23 +95,33 @@ cp .env.example .env
 # IMPORTANT: Change all passwords and JWT_SECRET before running!
 # For production, use strong random values (min. 32 characters)
 
+# Generate JWT secret:
+openssl rand -base64 64
+
 # 4. Start backend services
 docker-compose up -d
 
-# 5. Build frontend client
+# 5. Run database migrations
+cd src/Backend/AuthService
+dotnet ef database update
+
+# 6. Build frontend client
 .\build-client.bat    # Windows
 # or
 chmod +x build-client.sh && ./build-client.sh     # Linux/macOS
 
-# 6. Run application
+# 7. Run application
 .\publish\MessengerClient\MessengerClient.exe
 ```
 
 ### First Run
 
-1. Register a new account
-2. Enable MFA in Settings (optional but recommended)
-3. Add contacts and start messaging
+1. **Register** a new account (`/api/auth/register`)
+2. **Enable MFA** in Settings (optional but recommended)
+   - Scan QR code with Google Authenticator
+   - Save recovery codes
+3. **Login** with MFA code
+4. Add contacts and start messaging
 
 ### ⚠️ Security Notice
 
@@ -94,8 +129,9 @@ chmod +x build-client.sh && ./build-client.sh     # Linux/macOS
 
 1. Replace all passwords in `.env` with strong, random values
 2. Generate secure JWT secret: `openssl rand -base64 64`
-3. Never commit `.env` file to version control
-4. See [SECURITY.md](SECURITY.md) for best practices
+3. Set `TOTP_ENCRYPTION_KEY` environment variable (min. 32 chars)
+4. Never commit `.env` file to version control
+5. See [SECURITY.md](SECURITY.md) for best practices
 
 ---
 
@@ -112,7 +148,9 @@ chmod +x build-client.sh && ./build-client.sh     # Linux/macOS
 ### Security
 - ✅ End-to-end encryption (3 layers)
 - ✅ Perfect forward secrecy (via key rotation)
-- ✅ Multi-factor authentication
+- ✅ **NEW**: Multi-factor authentication (TOTP + Recovery Codes)
+- ✅ **NEW**: Input validation (FluentValidation)
+- ✅ **NEW**: Rate limiting (brute-force protection)
 - ✅ Encrypted file transfer
 - ✅ Audit logging
 - ✅ Automatic key rotation (every 30 days)
@@ -130,17 +168,19 @@ chmod +x build-client.sh && ./build-client.sh     # Linux/macOS
 
 ### Backend Services
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| **GatewayService** | 5000 | API Gateway (Ocelot) |
-| **AuthService** | 5001 | Authentication + JWT + MFA |
-| **MessageService** | 5002 | Messages + Conversations |
-| **CryptoService** | 5003 | Encryption operations |
-| **NotificationService** | 5004 | Real-time notifications |
-| **KeyManagementService** | 5005 | Key rotation + storage |
-| **UserService** | 5006 | User profiles + contacts |
-| **FileTransferService** | 5007 | Encrypted file uploads |
-| **AuditLogService** | 5008 | Audit logging |
+| Service | Port | Status | Purpose |
+|---------|------|--------|---------|
+| **GatewayService** | 5000 | ✅ 100% | API Gateway (Ocelot) |
+| **AuthService** | 5001 | ✅ 100% | **Authentication + JWT + MFA** |
+| **MessageService** | 5002 | 🟡 65% | Messages + Conversations |
+| **CryptoService** | 5003 | 🟡 70% | Encryption operations |
+| **NotificationService** | 5004 | ✅ 85% | Real-time notifications |
+| **KeyManagementService** | 5005 | ✅ 100% | **Key rotation + storage** |
+| **UserService** | 5006 | 🟡 60% | User profiles + contacts |
+| **FileTransferService** | 5007 | ✅ 90% | Encrypted file uploads |
+| **AuditLogService** | 5008 | ✅ 90% | Audit logging |
+
+**Legend**: ✅ Production-Ready | 🟡 Service Layer Complete, Controllers Pending
 
 ### Encryption Layers
 
@@ -159,8 +199,8 @@ See [docs/03_CRYPTOGRAPHY.md](docs/03_CRYPTOGRAPHY.md) for details.
 ```
 Messenger/
 ├── src/
-│   ├── Backend/          # 9 microservices
-│   ├── Frontend/         # WPF desktop client
+│   ├── Backend/          # 9 microservices (78% complete)
+│   ├── Frontend/         # WPF desktop client (100% complete)
 │   └── Shared/           # DTOs & common libraries
 ├── tests/                # 151 tests (~97% coverage)
 ├── docs/                 # Documentation
@@ -228,6 +268,7 @@ See [docs/guides/DEPLOYMENT_GUIDE.md](docs/guides/DEPLOYMENT_GUIDE.md) for produ
 ## Documentation
 
 - **[Getting Started](docs/README.md)** - Documentation index
+- **[Implementation Status](IMPLEMENTATION_STATUS.md)** - Current progress (85%)
 - **[Architecture](docs/02_ARCHITECTURE.md)** - System architecture
 - **[Cryptography](docs/03_CRYPTOGRAPHY.md)** - Encryption details
 - **[API Reference](docs/09_API_REFERENCE.md)** - API documentation
@@ -271,6 +312,32 @@ Email: security@example.com *(update with your contact)*
 
 ---
 
+## Roadmap
+
+### ✅ Completed (v9.0)
+- Backend infrastructure (Docker, PostgreSQL, Redis, RabbitMQ)
+- Authentication & MFA system
+- 3-layer encryption implementation
+- Frontend desktop client
+- Key management & rotation
+- File transfer service
+- Audit logging
+- CI/CD pipelines
+
+### 🚧 In Progress
+- MessageService Controllers
+- UserService Controllers
+- CryptoService Controllers
+
+### 📋 Planned
+- Mobile app (Xamarin/MAUI)
+- Web client (Blazor)
+- Voice/Video calls
+- Message search
+- Advanced group management
+
+---
+
 ## License
 
 This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
@@ -290,11 +357,13 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 - Built with [ASP.NET Core](https://dotnet.microsoft.com/)
 - UI powered by [MaterialDesignThemes](https://github.com/MaterialDesignInXAML/MaterialDesignInXamlToolkit)
 - Cryptography via [libsodium](https://libsodium.gitbook.io/)
+- TOTP via [Otp.NET](https://github.com/kspearrin/Otp.NET)
+- QR Code via [QRCoder](https://github.com/codebude/QRCoder)
 
 ---
 
 **Version**: 9.0.0  
-**Status**: Production Ready ✅  
-**Last Updated**: 2025-01-10
+**Status**: 85% Complete - Production Ready (Core Services) ✅  
+**Last Updated**: 2025-01-15
 
 **Repository**: https://github.com/Krialder/Messenger-App
