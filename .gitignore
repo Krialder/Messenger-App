@@ -84,3 +84,6 @@ docs/diagrams/*.svg
 *.tmp
 *.temp
 ~$*
+
+# Archive/Legacy Scripts (alte PowerShell Dateien)
+scripts/archive/

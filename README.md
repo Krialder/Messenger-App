@@ -82,7 +82,49 @@ Secure Messenger is an open-source encrypted messaging application featuring:
 - [Git](https://git-scm.com/)
 - 16GB RAM (recommended for Docker)
 
-### Installation
+### Installation (Automated - Recommended) 🚀
+
+The project includes automated setup scripts for easy deployment:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/Krialder/Messenger-App.git
+cd Messenger-App
+
+# 2. Run automated setup (Windows)
+setup.bat
+
+# The script will:
+# - Check Docker installation (starts Docker Desktop if needed)
+# - Create .env from .env.example
+# - Build and start all Docker services
+# - Run health checks on all 9 microservices
+# - Display service URLs
+
+# 3. Run tests
+test.bat
+
+# 4. Check status
+status.bat
+
+# 5. Build frontend client
+.\build-client.bat
+
+# 6. Run application
+.\publish\MessengerClient\MessengerClient.exe
+```
+
+**Available Scripts**:
+- `setup.bat` - Complete Docker setup with health checks
+- `test.bat` - Run all tests (Docker + Unit tests)
+- `status.bat` - Show detailed Docker status
+- `cleanup.bat` - Stop services and cleanup Docker resources
+
+**Script Documentation**: See [scripts/README.md](scripts/README.md) for detailed usage.
+
+### Installation (Manual)
+
+If you prefer manual installation:
 
 ```bash
 # 1. Clone repository
@@ -230,6 +272,33 @@ See [docs/03_CRYPTOGRAPHY.md](docs/03_CRYPTOGRAPHY.md) for details.
 
 ## Development
 
+### Automation Scripts 🔧
+
+The project includes PowerShell-based automation for common tasks:
+
+**Available Commands**:
+```bash
+setup.bat       # Complete Docker setup with health checks
+test.bat        # Run all tests (Docker services + Unit tests)
+status.bat      # Display Docker status (containers, ports, resources)
+cleanup.bat     # Stop services and cleanup Docker resources
+```
+
+**PowerShell Modules** (for advanced usage):
+- `scripts/powershell/DockerSetup.psm1` - Docker management functions
+- `scripts/powershell/TestRunner.psm1` - Test execution functions
+- `scripts/powershell/Common.psm1` - Shared utilities
+
+**Examples**:
+```powershell
+# Use modules directly in PowerShell
+Import-Module ".\scripts\powershell\DockerSetup.psm1"
+$health = Test-ServiceHealth
+Write-Host "Services healthy: $($health.Rate)%"
+```
+
+See [scripts/README.md](scripts/README.md) for complete documentation.
+
 ### Project Structure
 
 ```
@@ -238,8 +307,16 @@ Messenger/
 │   ├── Backend/          # 9 microservices (100% complete) ✅
 │   ├── Frontend/         # WPF desktop client (100% complete) ✅
 │   └── Shared/           # DTOs & common libraries
+├── scripts/              # Automation scripts 🆕
+│   ├── powershell/       # PowerShell modules (Core functionality)
+│   ├── batch/            # Batch launchers (Entry points)
+│   └── README.md         # Script documentation
 ├── tests/                # 193 tests (~99% passing, 97% coverage)
 ├── docs/                 # Comprehensive documentation
+├── setup.bat             # Quick setup launcher 🆕
+├── test.bat              # Quick test launcher 🆕
+├── status.bat            # Quick status check 🆕
+├── cleanup.bat           # Quick cleanup 🆕
 └── docker-compose.yml    # Infrastructure (fixed v10.1) ✅
 ```
 
