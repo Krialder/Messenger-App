@@ -46,7 +46,23 @@ secrets.json
 .env
 *.env
 !.env.example
+!.env.production.example
 secrets.txt
+
+# ===================================
+# Production Secrets (CRITICAL!)
+# ===================================
+.env.production
+secrets/
+ssl/*.pem
+ssl/*.key
+ssl/*.crt
+nginx/logs/
+*.sql
+*.sql.gz
+*_backup.tar.gz
+*_backup.tar.gz.gpg
+backups/
 
 # OS files
 .DS_Store

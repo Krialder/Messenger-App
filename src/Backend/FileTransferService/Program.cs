@@ -19,7 +19,7 @@ builder.Host.UseSerilog();
 builder.Services.AddControllers();
 
 // Database
-var connectionString = builder.Configuration.GetConnectionString("PostgreSQL") ?? throw new InvalidOperationException("PostgreSQL connection string not configured");
+var connectionString = builder.Configuration.GetConnectionString("FileDatabase") ?? throw new InvalidOperationException("FileDatabase connection string not configured");
 builder.Services.AddDbContext<FileDbContext>(options =>
     options.UseNpgsql(connectionString));
 

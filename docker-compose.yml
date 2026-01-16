@@ -1,5 +1,21 @@
 version: '3.8'
 
+# ===================================
+# DEVELOPMENT CONFIGURATION
+# ===================================
+# This file is for LOCAL DEVELOPMENT ONLY!
+# 
+# For Production Deployment:
+# - Use: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# - See: docs/PRODUCTION_DEPLOYMENT.md
+#
+# Development Features:
+# - Direct port exposure (5000-5008, 5432, 6379, 5672)
+# - Environment variables from .env file
+# - No SSL/TLS (HTTP only)
+# - Development database credentials
+# ===================================
+
 services:
   # PostgreSQL Database
   postgres:
@@ -120,6 +136,7 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__MessageDatabase=Host=postgres;Database=messenger_messages;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-messenger_dev_password_2024}
+      - Jwt__Secret=${JWT_SECRET}
       - Jwt__SecretKey=${JWT_SECRET}
       - Jwt__Issuer=${JWT_ISSUER:-MessengerAuthService}
       - Jwt__Audience=${JWT_AUDIENCE:-MessengerClient}
@@ -157,10 +174,146 @@ services:
     networks:
       - messenger_network
 
+  # Crypto Service
+  crypto-service:
+    build:
+      context: .
+      dockerfile: src/Backend/CryptoService/Dockerfile
+    container_name: messenger_crypto_service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Jwt__Secret=${JWT_SECRET}
+      - Jwt__Issuer=${JWT_ISSUER:-MessengerAuthService}
+      - Jwt__Audience=${JWT_AUDIENCE:-MessengerClient}
+    ports:
+      - "5004:8080"
+    depends_on:
+      - auth-service
+    networks:
+      - messenger_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Key Management Service
+  key-management-service:
+    build:
+      context: .
+      dockerfile: src/Backend/KeyManagementService/Dockerfile
+    container_name: messenger_key_management_service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__KeyDatabase=Host=postgres;Database=messenger_keys;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-messenger_dev_password_2024}
+      - Jwt__Secret=${JWT_SECRET}
+      - Jwt__Issuer=${JWT_ISSUER:-MessengerAuthService}
+      - Jwt__Audience=${JWT_AUDIENCE:-MessengerClient}
+    ports:
+      - "5005:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - messenger_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Notification Service
+  notification-service:
+    build:
+      context: .
+      dockerfile: src/Backend/NotificationService/Dockerfile
+    container_name: messenger_notification_service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Jwt__Secret=${JWT_SECRET}
+      - Jwt__Issuer=${JWT_ISSUER:-MessengerAuthService}
+      - Jwt__Audience=${JWT_AUDIENCE:-MessengerClient}
+      - RabbitMQ__HostName=rabbitmq
+      - RabbitMQ__UserName=${RABBITMQ_USER:-messenger}
+      - RabbitMQ__Password=${RABBITMQ_PASSWORD:-messenger_password}
+      - Redis__Password=${REDIS_PASSWORD}
+      - SignalR__HubUrl=http://gateway-service:8080/hubs/notifications
+    ports:
+      - "5006:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - messenger_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # File Transfer Service
+  file-transfer-service:
+    build:
+      context: .
+      dockerfile: src/Backend/FileTransferService/Dockerfile
+    container_name: messenger_file_transfer_service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__FileDatabase=Host=postgres;Database=messenger_files;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-messenger_dev_password_2024}
+      - Jwt__Secret=${JWT_SECRET}
+      - Jwt__Issuer=${JWT_ISSUER:-MessengerAuthService}
+      - Jwt__Audience=${JWT_AUDIENCE:-MessengerClient}
+      - Storage__MaxFileSizeMB=100
+      - Storage__AllowedExtensions=jpg,jpeg,png,gif,pdf,doc,docx,txt,zip
+    ports:
+      - "5007:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - messenger_network
+    volumes:
+      - file_storage:/app/files
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Audit Log Service
+  audit-log-service:
+    build:
+      context: .
+      dockerfile: src/Backend/AuditLogService/Dockerfile
+    container_name: messenger_audit_log_service
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__AuditDatabase=Host=postgres;Database=messenger_audit;Username=${POSTGRES_USER:-messenger_admin};Password=${POSTGRES_PASSWORD:-messenger_dev_password_2024}
+      - RabbitMQ__HostName=rabbitmq
+      - RabbitMQ__UserName=${RABBITMQ_USER:-messenger}
+      - RabbitMQ__Password=${RABBITMQ_PASSWORD:-messenger_password}
+    ports:
+      - "5008:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - messenger_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
+  file_storage:
 
 networks:
   messenger_network:

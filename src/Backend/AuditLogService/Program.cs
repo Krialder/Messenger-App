@@ -21,8 +21,8 @@ builder.Host.UseSerilog();
 builder.Services.AddControllers();
 
 // Database
-var connectionString = builder.Configuration.GetConnectionString("PostgreSQL") 
-    ?? throw new InvalidOperationException("PostgreSQL connection string not configured");
+var connectionString = builder.Configuration.GetConnectionString("AuditDatabase") 
+    ?? throw new InvalidOperationException("AuditDatabase connection string not configured");
 builder.Services.AddDbContext<AuditDbContext>(options =>
     options.UseNpgsql(connectionString));
 

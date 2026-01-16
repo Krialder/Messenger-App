@@ -81,17 +81,20 @@ Secure Messenger is an open-source encrypted messaging application featuring:
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) (24.x or later)
 - [Git](https://git-scm.com/)
 - 16GB RAM (recommended for Docker)
+- **Windows 11 Pro** (for Windows deployment) or **Ubuntu 22.04** (for Linux)
 
 ### Installation (Automated - Recommended) 🚀
 
 The project includes automated setup scripts for easy deployment:
+
+#### **Windows (Development)**
 
 ```bash
 # 1. Clone repository
 git clone https://github.com/Krialder/Messenger-App.git
 cd Messenger-App
 
-# 2. Run automated setup (Windows)
+# 2. Run automated setup
 setup.bat
 
 # The script will:
@@ -114,54 +117,67 @@ status.bat
 .\publish\MessengerClient\MessengerClient.exe
 ```
 
-**Available Scripts**:
-- `setup.bat` - Complete Docker setup with health checks
-- `test.bat` - Run all tests (Docker + Unit tests)
-- `status.bat` - Show detailed Docker status
-- `cleanup.bat` - Stop services and cleanup Docker resources
+#### **Windows (Production Server)** ⭐ NEW!
 
-**Script Documentation**: See [scripts/README.md](scripts/README.md) for detailed usage.
+```powershell
+# 1. Generate production secrets
+powershell -ExecutionPolicy Bypass -File scripts\windows\generate-secrets.ps1
 
-### Installation (Manual)
+# 2. Configure LAN deployment (HTTP-only for internal network)
+notepad nginx\nginx-lan.conf
+# Update line 41 with your LAN IP: server_name 192.168.1.100 localhost;
 
-If you prefer manual installation:
+# 3. Deploy to production
+deploy.bat -SkipSSL
+
+# OR: Full production with HTTPS
+deploy.bat
+
+# 4. Setup automatic backups
+powershell -ExecutionPolicy Bypass -File scripts\windows\backup-database.ps1
+```
+
+**Windows Production Scripts**:
+- `deploy.bat` - Production deployment launcher
+- `scripts\windows\generate-secrets.ps1` - Automatic secret generator
+- `scripts\windows\Deploy-Production.ps1` - Full deployment script
+- `scripts\windows\backup-database.ps1` - Database backup automation
+
+**See [docs/WINDOWS_DEPLOYMENT.md](docs/WINDOWS_DEPLOYMENT.md) for complete Windows 11 Server guide**
+
+#### **Linux (Development/Production)**
 
 ```bash
 # 1. Clone repository
 git clone https://github.com/Krialder/Messenger-App.git
 cd Messenger-App
 
-# 2. Configure environment
-cp .env.example .env
+# 2. Generate secrets
+./scripts/deploy-production.sh
+# Follow interactive prompts
 
-# 3. Edit .env and replace placeholder secrets
-# IMPORTANT: Change all passwords and JWT_SECRET before running!
-# For production, use strong random values (min. 32 characters)
-
-# Generate JWT secret:
-openssl rand -base64 64
-
-# 4. Start backend services (Docker)
-docker-compose build
-docker-compose up -d
-
-# 5. Verify all services are healthy
-docker-compose ps
-# Expected: All services show "healthy"
-
-# 6. Run database migrations
-docker-compose exec auth-service dotnet ef database update
-docker-compose exec message-service dotnet ef database update
-docker-compose exec user-service dotnet ef database update
-
-# 7. Build frontend client
-.\build-client.bat    # Windows
-# or
-chmod +x build-client.sh && ./build-client.sh     # Linux/macOS
-
-# 8. Run application
-.\publish\MessengerClient\MessengerClient.exe
+# 3. Or manual setup
+cp .env.production.example .env.production
+# Edit .env.production with secrets
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
+
+**Available Scripts**:
+- **Windows Development**:
+  - `setup.bat` - Complete Docker setup with health checks
+  - `test.bat` - Run all tests (Docker + Unit tests)
+  - `status.bat` - Show detailed Docker status
+  - `cleanup.bat` - Stop services and cleanup Docker resources
+- **Windows Production**:
+  - `deploy.bat` - Production deployment (with SSL or LAN)
+  - See [scripts/windows/README.md](scripts/windows/README.md) for details
+- **Linux Production**:
+  - `scripts/deploy-production.sh` - Production deployment script
+  - See [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md) for details
+
+**Script Documentation**: 
+- Windows: [scripts/windows/README.md](scripts/windows/README.md)
+- PowerShell Modules: [scripts/README.md](scripts/README.md)
 
 ### Docker Health Check
 
@@ -360,6 +376,44 @@ docker-compose up -d
 
 ## Deployment
 
+### Quick Deployment Options
+
+| Platform | Use Case | Guide |
+|----------|----------|-------|
+| **Windows 11 Pro** (LAN) | Internal company network (60-1000 users) | [docs/WINDOWS_DEPLOYMENT.md](docs/WINDOWS_DEPLOYMENT.md) ⭐ |
+| **Windows 11 Pro** (WAN) | Public internet with Dynamic DNS | [docs/WINDOWS_DEPLOYMENT.md](docs/WINDOWS_DEPLOYMENT.md) (Phase 2) |
+| **Ubuntu 22.04** | Linux server with SSL | [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md) |
+| **Docker Compose** | Local development | `docker-compose up -d` |
+| **Kubernetes** | Cloud/Enterprise scale | [docs/guides/DEPLOYMENT_GUIDE.md](docs/guides/DEPLOYMENT_GUIDE.md) |
+
+### Windows Production Deployment (NEW!) ⭐
+
+**For Windows 11 Pro Server** (Internal LAN):
+
+```powershell
+# 1. Prerequisites
+# - Windows 11 Pro (Home not supported)
+# - Docker Desktop installed
+# - WSL2 enabled
+
+# 2. Quick Deploy
+cd C:\Server\Messenger
+powershell -ExecutionPolicy Bypass -File scripts\windows\generate-secrets.ps1
+deploy.bat -SkipSSL
+
+# 3. Access via LAN
+# http://YOUR-SERVER-IP/health
+```
+
+**Features**:
+- ✅ HTTP-only for internal network (no SSL needed)
+- ✅ Automatic secret generation
+- ✅ Health checks built-in
+- ✅ Auto-restart on failure
+- ✅ Daily backups (Task Scheduler)
+
+**See [docs/WINDOWS_DEPLOYMENT.md](docs/WINDOWS_DEPLOYMENT.md) for complete guide**
+
 ### Docker (Recommended) ✅
 
 ```bash
@@ -390,13 +444,11 @@ chmod +x build-client.sh
 ./build-client.sh
 ```
 
-### Production Deployment
+### Production Deployment Guides
 
-See [docs/guides/DEPLOYMENT_GUIDE.md](docs/guides/DEPLOYMENT_GUIDE.md) for:
-- Kubernetes manifests
-- Environment configuration
-- Scaling strategies
-- Monitoring setup
+- **Windows 11 Server**: [docs/WINDOWS_DEPLOYMENT.md](docs/WINDOWS_DEPLOYMENT.md) ⭐ NEW!
+- **Linux Server (Ubuntu)**: [docs/PRODUCTION_DEPLOYMENT.md](docs/PRODUCTION_DEPLOYMENT.md)
+- **Kubernetes**: [docs/guides/DEPLOYMENT_GUIDE.md](docs/guides/DEPLOYMENT_GUIDE.md)
 
 ---
 
@@ -409,8 +461,11 @@ See [docs/guides/DEPLOYMENT_GUIDE.md](docs/guides/DEPLOYMENT_GUIDE.md) for:
 - **[Cryptography](docs/03_CRYPTOGRAPHY.md)** - Encryption details
 - **[API Reference](docs/09_API_REFERENCE.md)** - API documentation
 
-### Guides
-- **[Deployment Guide](docs/guides/DEPLOYMENT_GUIDE.md)** - Production deployment
+### Deployment Guides ⭐
+- **[Windows 11 Deployment](docs/WINDOWS_DEPLOYMENT.md)** - Windows Server guide (NEW!)
+- **[Linux Deployment](docs/PRODUCTION_DEPLOYMENT.md)** - Ubuntu Server guide
+- **[General Deployment](docs/guides/DEPLOYMENT_GUIDE.md)** - Kubernetes & cloud
+- **[Windows Scripts](scripts/windows/README.md)** - PowerShell automation (NEW!)
 - **[Project Structure](docs/guides/PROJECT_STRUCTURE.md)** - Complete file structure
 - **[Workspace Guide](docs/guides/WORKSPACE_GUIDE.md)** - Quick reference
 - **[Testing](docs/08_TESTING.md)** - Testing strategy
@@ -505,6 +560,6 @@ This project is licensed under the MIT License - see [LICENSE](LICENSE) for deta
 
 **Version**: 10.1.0  
 **Status**: 92% Complete - Production Ready (All Services) ✅  
-**Last Updated**: 2025-01-15
+**Last Updated**: 2025-01-16
 
 **Repository**: https://github.com/Krialder/Messenger-App
