@@ -1,7 +1,3 @@
-// ========================================
-// Audit Log Service Program
-// ========================================
-
 using AuditLogService.Data;
 using Microsoft.EntityFrameworkCore;
 using Serilog;

@@ -55,41 +55,7 @@ else
 
 // Rate Limiting
 builder.Services.AddMemoryCache();
-builder.Services.Configure<IpRateLimitOptions>(options =>
-{
-    options.EnableEndpointRateLimiting = true;
-    options.StackBlockedRequests = false;
-    options.HttpStatusCode = 429;
-    options.RealIpHeader = "X-Real-IP";
-    options.ClientIdHeader = "X-ClientId";
-    options.GeneralRules = new List<RateLimitRule>
-    {
-        new RateLimitRule
-        {
-            Endpoint = "POST:/api/auth/login",
-            Limit = 5,
-            Period = "15m"
-        },
-        new RateLimitRule
-        {
-            Endpoint = "POST:/api/auth/register",
-            Limit = 3,
-            Period = "1h"
-        },
-        new RateLimitRule
-        {
-            Endpoint = "POST:/api/auth/verify-mfa",
-            Limit = 10,
-            Period = "15m"
-        },
-        new RateLimitRule
-        {
-            Endpoint = "POST:/api/mfa/verify-totp-setup",
-            Limit = 5,
-            Period = "15m"
-        }
-    };
-});
+builder.Services.Configure<IpRateLimitOptions>(builder.Configuration.GetSection("IpRateLimiting"));
 
 builder.Services.Configure<IpRateLimitPolicies>(options =>
 {
