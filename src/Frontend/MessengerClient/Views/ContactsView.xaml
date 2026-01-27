@@ -1,5 +1,5 @@
 <!-- PSEUDO-CODE - Sprint 8: Contacts View -->
-<UserControl x:Class="SecureMessenger.Client.Views.ContactsView"
+<UserControl x:Class="MessengerClient.Views.ContactsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">

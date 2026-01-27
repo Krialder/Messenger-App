@@ -20,6 +20,7 @@ namespace MessengerClient.ViewModels
         private string _errorMessage = string.Empty;
         private string _successMessage = string.Empty;
         private bool _isLoading;
+        private bool _acceptTerms;
 
         public string Email
         {
@@ -63,6 +64,12 @@ namespace MessengerClient.ViewModels
             set => this.RaiseAndSetIfChanged(ref _isLoading, value);
         }
 
+        public bool AcceptTerms
+        {
+            get => _acceptTerms;
+            set => this.RaiseAndSetIfChanged(ref _acceptTerms, value);
+        }
+
         public ReactiveCommand<Unit, Unit> RegisterCommand { get; }
         public ReactiveCommand<Unit, Unit> NavigateToLoginCommand { get; }
 
@@ -84,14 +91,16 @@ namespace MessengerClient.ViewModels
                 x => x.ConfirmPassword,
                 x => x.DisplayName,
                 x => x.IsLoading,
-                (email, password, confirmPassword, displayName, loading) =>
+                x => x.AcceptTerms,
+                (email, password, confirmPassword, displayName, loading, acceptTerms) =>
                     !string.IsNullOrWhiteSpace(email) &&
                     !string.IsNullOrWhiteSpace(password) &&
                     !string.IsNullOrWhiteSpace(confirmPassword) &&
                     !string.IsNullOrWhiteSpace(displayName) &&
                     password == confirmPassword &&
                     password.Length >= 8 &&
-                    !loading);
+                    !loading &&
+                    acceptTerms);
 
             RegisterCommand = ReactiveCommand.CreateFromTask(RegisterAsync, canRegister);
 

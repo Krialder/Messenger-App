@@ -8,6 +8,8 @@ using UserService.Controllers;
 using UserService.Data;
 using UserService.Data.Entities;
 using Xunit;
+using FluentValidation;
+using Moq;
 
 namespace MessengerTests.ServiceTests;
 
@@ -19,6 +21,9 @@ public class UserServiceTests : IDisposable
     private readonly UserDbContext _context;
     private readonly UsersController _controller;
     private readonly ILogger<UsersController> _logger;
+    private readonly Mock<IValidator<UpdateProfileRequest>> _updateProfileValidatorMock;
+    private readonly Mock<IValidator<AddContactRequest>> _addContactValidatorMock;
+    private readonly Mock<IValidator<DeleteAccountRequest>> _deleteAccountValidatorMock;
 
     public UserServiceTests()
     {
@@ -33,8 +38,31 @@ public class UserServiceTests : IDisposable
         var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
         _logger = loggerFactory.CreateLogger<UsersController>();
 
+        // Setup mocks for validators
+        _updateProfileValidatorMock = new Mock<IValidator<UpdateProfileRequest>>();
+        _addContactValidatorMock = new Mock<IValidator<AddContactRequest>>();
+        _deleteAccountValidatorMock = new Mock<IValidator<DeleteAccountRequest>>();
+
+        // Setup default validator behavior (all valid)
+        _updateProfileValidatorMock
+            .Setup(v => v.ValidateAsync(It.IsAny<UpdateProfileRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FluentValidation.Results.ValidationResult());
+
+        _addContactValidatorMock
+            .Setup(v => v.ValidateAsync(It.IsAny<AddContactRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FluentValidation.Results.ValidationResult());
+
+        _deleteAccountValidatorMock
+            .Setup(v => v.ValidateAsync(It.IsAny<DeleteAccountRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FluentValidation.Results.ValidationResult());
+
         // Setup controller
-        _controller = new UsersController(_context, _logger);
+        _controller = new UsersController(
+            _context, 
+            _logger,
+            _updateProfileValidatorMock.Object,
+            _addContactValidatorMock.Object,
+            _deleteAccountValidatorMock.Object);
 
         // Seed test data
         SeedTestData();
@@ -142,7 +170,7 @@ public class UserServiceTests : IDisposable
         var result = await _controller.GetProfile(userId);
 
         // Assert
-        Assert.IsType<NotFoundResult>(result);
+        Assert.IsType<NotFoundObjectResult>(result);
     }
 
     [Fact]
@@ -156,7 +184,7 @@ public class UserServiceTests : IDisposable
         var result = await _controller.GetProfile(userId);
 
         // Assert
-        Assert.IsType<NotFoundResult>(result);
+        Assert.IsType<NotFoundObjectResult>(result);
     }
 
     [Fact]
@@ -213,16 +241,25 @@ public class UserServiceTests : IDisposable
         var userId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         SetupUserContext(userId);
 
+        var longBio = new string('x', 501); // 501 characters
         var request = new MessengerContracts.DTOs.UpdateProfileRequest
         {
-            Bio = new string('x', 501) // 501 characters
+            Bio = longBio
         };
+
+        // Setup validator to return error for too long bio
+        _updateProfileValidatorMock
+            .Setup(v => v.ValidateAsync(It.Is<UpdateProfileRequest>(r => r.Bio == longBio), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FluentValidation.Results.ValidationResult(new[]
+            {
+                new FluentValidation.Results.ValidationFailure("Bio", "Bio must be 500 characters or less")
+            }));
 
         // Act
         var result = await _controller.UpdateProfile(request);
 
         // Assert
-        Assert.IsType<BadRequestResult>(result);
+        Assert.IsType<BadRequestObjectResult>(result);
     }
 
     [Fact]
@@ -255,7 +292,7 @@ public class UserServiceTests : IDisposable
         SetupUserContext(userId);
 
         // Act
-        var result = await _controller.Search("testuser2", 10);
+        var result = await _controller.Search("testuser2");
 
         // Assert
         var okResult = Assert.IsType<OkObjectResult>(result);
@@ -275,10 +312,10 @@ public class UserServiceTests : IDisposable
         SetupUserContext(userId);
 
         // Act
-        var result = await _controller.Search("a", 10);
+        var result = await _controller.Search("a");
 
         // Assert
-        Assert.IsType<BadRequestResult>(result);
+        Assert.IsType<BadRequestObjectResult>(result);
     }
 
     [Fact]
@@ -289,10 +326,10 @@ public class UserServiceTests : IDisposable
         SetupUserContext(userId);
 
         // Act
-        var result = await _controller.Search("", 10);
+        var result = await _controller.Search(string.Empty);
 
         // Assert
-        Assert.IsType<BadRequestResult>(result);
+        Assert.IsType<BadRequestObjectResult>(result);
     }
 
     [Fact]
@@ -303,7 +340,7 @@ public class UserServiceTests : IDisposable
         SetupUserContext(userId);
 
         // Act
-        var result = await _controller.Search("testuser", 10);
+        var result = await _controller.Search("testuser");
 
         // Assert
         var okResult = Assert.IsType<OkObjectResult>(result);
@@ -321,7 +358,7 @@ public class UserServiceTests : IDisposable
         SetupUserContext(userId);
 
         // Act
-        var result = await _controller.Search("inactive", 10);
+        var result = await _controller.Search("inactive");
 
         // Assert
         var okResult = Assert.IsType<OkObjectResult>(result);
@@ -341,6 +378,12 @@ public class UserServiceTests : IDisposable
         // Arrange
         var userId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         SetupUserContext(userId);
+
+        // First activate the inactive user
+        var targetUser = await _context.UserProfiles.FindAsync(Guid.Parse("33333333-3333-3333-3333-333333333333"));
+        Assert.NotNull(targetUser);
+        targetUser.IsActive = true;
+        await _context.SaveChangesAsync();
 
         var request = new AddContactRequest
         {
@@ -379,7 +422,7 @@ public class UserServiceTests : IDisposable
         var result = await _controller.AddContact(request);
 
         // Assert
-        Assert.IsType<BadRequestResult>(result);
+        Assert.IsType<BadRequestObjectResult>(result);
     }
 
     [Fact]
@@ -398,7 +441,7 @@ public class UserServiceTests : IDisposable
         var result = await _controller.AddContact(request);
 
         // Assert
-        Assert.IsType<ConflictResult>(result);
+        Assert.IsType<ConflictObjectResult>(result);
     }
 
     [Fact]
@@ -455,7 +498,7 @@ public class UserServiceTests : IDisposable
         var result = await _controller.RemoveContact(Guid.NewGuid());
 
         // Assert
-        Assert.IsType<NotFoundResult>(result);
+        Assert.IsType<NotFoundObjectResult>(result);
     }
 
     [Fact]
@@ -474,7 +517,7 @@ public class UserServiceTests : IDisposable
         var result = await _controller.RemoveContact(otherUsersContact.Id);
 
         // Assert
-        Assert.IsType<NotFoundResult>(result);
+        Assert.IsType<NotFoundObjectResult>(result);
     }
 
     // ========================================
@@ -525,7 +568,7 @@ public class UserServiceTests : IDisposable
         var result = await _controller.DeleteAccount(request);
 
         // Assert
-        Assert.IsType<NotFoundResult>(result);
+        Assert.IsType<NotFoundObjectResult>(result);
     }
 
     // ========================================
@@ -541,12 +584,10 @@ public class UserServiceTests : IDisposable
 
         var newContactId = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
-        // Step 1: Search for user
-        var searchResult = await _controller.Search("inactive", 10);
+        // Step 1: Search for user (should be empty because user is inactive)
+        var searchResult = await _controller.Search("inactive");
         var searchOk = Assert.IsType<OkObjectResult>(searchResult);
         var searchUsers = Assert.IsAssignableFrom<IEnumerable<UserSearchResultDto>>(searchOk.Value);
-        
-        // Should be empty because user is inactive
         Assert.Empty(searchUsers);
 
         // Make user active for this test
@@ -554,9 +595,12 @@ public class UserServiceTests : IDisposable
         Assert.NotNull(targetUser);
         targetUser.IsActive = true;
         await _context.SaveChangesAsync();
+        
+        // Clear change tracker to ensure fresh query
+        _context.ChangeTracker.Clear();
 
-        // Step 2: Search again
-        var searchResult2 = await _controller.Search("inactive", 10);
+        // Step 2: Search again (user should now be visible)
+        var searchResult2 = await _controller.Search("inactive");
         var searchOk2 = Assert.IsType<OkObjectResult>(searchResult2);
         var searchUsers2 = Assert.IsAssignableFrom<IEnumerable<UserSearchResultDto>>(searchOk2.Value).ToList();
         Assert.Single(searchUsers2);
@@ -578,7 +622,7 @@ public class UserServiceTests : IDisposable
         Assert.Equal("Test Contact", newContact.Nickname);
 
         // Step 5: Search shows IsContact = true
-        var searchResult3 = await _controller.Search("inactive", 10);
+        var searchResult3 = await _controller.Search("inactive");
         var searchOk3 = Assert.IsType<OkObjectResult>(searchResult3);
         var searchUsers3 = Assert.IsAssignableFrom<IEnumerable<UserSearchResultDto>>(searchOk3.Value).ToList();
         Assert.Single(searchUsers3);

@@ -42,7 +42,7 @@ namespace MessengerClient
 
         private void ConfigureServices(ServiceCollection services)
         {
-            string gatewayUrl = "https://localhost:7001";
+            string gatewayUrl = "http://localhost:7001";
 
             // Fixed: Correct Refit service registration for .NET 8
             services.AddHttpClient();
@@ -65,6 +65,7 @@ namespace MessengerClient
             services.AddSingleton(provider => new SignalRService(gatewayUrl));
             services.AddSingleton<LocalCryptoService>();
             services.AddSingleton<LocalStorageService>();
+            services.AddSingleton<ITokenStorageService, TokenStorageService>();
 
             services.AddDbContext<LocalDbContext>(options =>
                 options.UseSqlite("Data Source=messenger.db"));

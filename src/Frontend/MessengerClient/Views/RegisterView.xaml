@@ -27,10 +27,10 @@
                            Foreground="{DynamicResource MaterialDesignBody}"
                            Margin="0,0,0,30"/>
                 
-                <!-- Username Input -->
-                <TextBox x:Name="UsernameTextBox"
-                         materialDesign:HintAssist.Hint="Benutzername" 
-                         Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"
+                <!-- Display Name Input -->
+                <TextBox x:Name="DisplayNameTextBox"
+                         materialDesign:HintAssist.Hint="Anzeigename" 
+                         Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}"
                          Style="{StaticResource MaterialDesignOutlinedTextBox}"
                          Margin="0,0,0,20"/>
                 

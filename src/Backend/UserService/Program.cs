@@ -7,6 +7,9 @@ using Microsoft.EntityFrameworkCore;
 using Serilog;
 using UserService.Data;
 using MessengerCommon.Extensions;
+using FluentValidation;
+using UserService.Validators;
+using MessengerContracts.DTOs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +30,11 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
     });
+
+// FluentValidation
+builder.Services.AddScoped<IValidator<UpdateProfileRequest>, UpdateProfileRequestValidator>();
+builder.Services.AddScoped<IValidator<AddContactRequest>, AddContactRequestValidator>();
+builder.Services.AddScoped<IValidator<DeleteAccountRequest>, DeleteAccountRequestValidator>();
 
 // Database
 var connectionString = builder.Configuration.GetConnectionString("UserDatabase");

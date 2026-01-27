@@ -1,4 +1,7 @@
 using System;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading.Tasks;
 using MessengerClient.Services;
 using MessengerContracts.DTOs;
@@ -9,11 +12,14 @@ namespace MessengerClient.Services
     {
         private readonly IAuthApiService _refitClient;
         private readonly LocalStorageService _localStorage;
+        private readonly HttpClient _httpClient;
+        private const string BaseUrl = "http://localhost:5001/api";
 
         public AuthApiService(IAuthApiService refitClient, LocalStorageService localStorage)
         {
             _refitClient = refitClient;
             _localStorage = localStorage;
+            _httpClient = new HttpClient { BaseAddress = new Uri(BaseUrl) };
         }
 
         public async Task<RegisterResponse> RegisterAsync(RegisterRequest request)
@@ -23,7 +29,24 @@ namespace MessengerClient.Services
 
         public async Task<LoginResponse> LoginAsync(LoginRequest request)
         {
-            return await _refitClient.LoginAsync(request);
+            try
+            {
+                var response = await _httpClient.PostAsJsonAsync("/auth/login", request);
+                
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    var retryAfter = response.Headers.RetryAfter?.Delta?.TotalSeconds ?? 900;
+                    throw new RateLimitException($"Zu viele Login-Versuche. Bitte warten Sie {retryAfter} Sekunden.");
+                }
+
+                response.EnsureSuccessStatusCode();
+                return await response.Content.ReadFromJsonAsync<LoginResponse>() 
+                    ?? throw new InvalidOperationException("Login response is null");
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new Exception($"Login fehlgeschlagen: {ex.Message}", ex);
+            }
         }
 
         public async Task<LoginResponse> VerifyMfaAsync(VerifyMfaRequest request)
@@ -68,5 +91,10 @@ namespace MessengerClient.Services
             await _localStorage.ClearTokenAsync();
             await _localStorage.ClearRefreshTokenAsync();
         }
+    }
+
+    public class RateLimitException : Exception
+    {
+        public RateLimitException(string message) : base(message) { }
     }
 }

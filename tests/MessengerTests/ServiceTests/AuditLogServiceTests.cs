@@ -303,7 +303,7 @@ namespace MessengerTests.ServiceTests
             var result = await _controller.GetAuditLogById(nonExistentId);
 
             // Assert
-            Assert.IsType<NotFoundResult>(result);
+            Assert.IsType<NotFoundObjectResult>(result);
         }
 
         // ========================================

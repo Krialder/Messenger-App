@@ -19,6 +19,7 @@ namespace MessengerClient.ViewModels
     public class LoginViewModel : INotifyPropertyChanged
     {
         private readonly IAuthApiService _authApiService;
+        private readonly ITokenStorageService _tokenStorage;
         
         // Events
         public event EventHandler? LoginSuccessful;
@@ -75,9 +76,10 @@ namespace MessengerClient.ViewModels
         public ICommand VerifyMfaCommand { get; }
         public ICommand NavigateToRegisterCommand { get; }
         
-        public LoginViewModel(IAuthApiService authApiService)
+        public LoginViewModel(IAuthApiService authApiService, ITokenStorageService tokenStorage)
         {
             _authApiService = authApiService;
+            _tokenStorage = tokenStorage;
             LoginCommand = new RelayCommand(async () => await LoginAsync(), () => CanLogin);
             VerifyMfaCommand = new RelayCommand(async () => await VerifyMfaAsync(), () => CanVerifyMfa);
             NavigateToRegisterCommand = new RelayCommand(() => NavigateToRegister?.Invoke(this, EventArgs.Empty));
@@ -102,8 +104,15 @@ namespace MessengerClient.ViewModels
                 else
                 {
                     // Login successful without MFA
-                    await _authApiService.StoreTokensAsync(response.AccessToken, response.RefreshToken);
-                    LoginSuccessful?.Invoke(this, EventArgs.Empty);
+                    if (!string.IsNullOrEmpty(response.AccessToken) && !string.IsNullOrEmpty(response.RefreshToken))
+                    {
+                        await _tokenStorage.StoreTokensAsync(response.AccessToken, response.RefreshToken);
+                        LoginSuccessful?.Invoke(this, EventArgs.Empty);
+                    }
+                    else
+                    {
+                        ErrorMessage = "Invalid response from server";
+                    }
                 }
             }
             catch (Exception ex)
@@ -128,8 +137,15 @@ namespace MessengerClient.ViewModels
                 var response = await _authApiService.VerifyMfaAsync(request);
                 
                 // Store tokens securely
-                await _authApiService.StoreTokensAsync(response.AccessToken, response.RefreshToken);
-                LoginSuccessful?.Invoke(this, EventArgs.Empty);
+                if (!string.IsNullOrEmpty(response.AccessToken) && !string.IsNullOrEmpty(response.RefreshToken))
+                {
+                    await _tokenStorage.StoreTokensAsync(response.AccessToken, response.RefreshToken);
+                    LoginSuccessful?.Invoke(this, EventArgs.Empty);
+                }
+                else
+                {
+                    ErrorMessage = "Invalid response from server";
+                }
             }
             catch (Exception ex)
             {

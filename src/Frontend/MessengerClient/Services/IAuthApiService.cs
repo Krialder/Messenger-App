@@ -4,6 +4,10 @@ using MessengerContracts.DTOs;
 
 namespace MessengerClient.Services
 {
+    /// <summary>
+    /// Refit interface for authentication API calls
+    /// Note: Token storage methods moved to ITokenStorageService
+    /// </summary>
     public interface IAuthApiService
     {
         // Refit API calls
@@ -24,10 +28,5 @@ namespace MessengerClient.Services
 
         [Post("/api/auth/logout")]
         Task LogoutAsync([Header("Authorization")] string authorization);
-        
-        // Token management (non-Refit methods)
-        Task StoreTokensAsync(string accessToken, string refreshToken);
-        Task<string?> GetStoredTokenAsync();
-        Task ClearStoredTokensAsync();
     }
 }

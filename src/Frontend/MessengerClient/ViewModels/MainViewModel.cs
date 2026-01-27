@@ -17,6 +17,12 @@ namespace MessengerClient.ViewModels
         public ContactsViewModel ContactsViewModel { get; }
         public SettingsViewModel SettingsViewModel { get; }
 
+        public ReactiveObject CurrentViewModel
+        {
+            get => _currentViewModel;
+            private set => this.RaiseAndSetIfChanged(ref _currentViewModel, value);
+        }
+
         public ReactiveCommand<Unit, Unit> NavigateToChatCommand { get; private set; }
         public ReactiveCommand<Unit, Unit> NavigateToContactsCommand { get; private set; }
         public ReactiveCommand<Unit, Unit> NavigateToSettingsCommand { get; private set; }
@@ -57,6 +63,7 @@ namespace MessengerClient.ViewModels
 
         public void NavigateToChat()
         {
+            CurrentViewModel = ChatViewModel;
             IsChatViewActive = true;
             IsContactsViewActive = false;
             IsSettingsViewActive = false;
@@ -64,6 +71,7 @@ namespace MessengerClient.ViewModels
 
         public void NavigateToContacts()
         {
+            CurrentViewModel = ContactsViewModel;
             IsChatViewActive = false;
             IsContactsViewActive = true;
             IsSettingsViewActive = false;
@@ -71,6 +79,7 @@ namespace MessengerClient.ViewModels
 
         public void NavigateToSettings()
         {
+            CurrentViewModel = SettingsViewModel;
             IsChatViewActive = false;
             IsContactsViewActive = false;
             IsSettingsViewActive = true;

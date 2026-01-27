@@ -56,7 +56,7 @@ namespace MessengerClient.Services
             byte[] ciphertext = new byte[plaintextBytes.Length];
             byte[] tag = new byte[TagSize];
 
-            using (AesGcm aesGcm = new AesGcm(key))
+            using (AesGcm aesGcm = new AesGcm(key, TagSize))
             {
                 await Task.Run(() => aesGcm.Encrypt(nonce, plaintextBytes, ciphertext, tag));
             }
@@ -91,7 +91,7 @@ namespace MessengerClient.Services
 
             byte[] plaintext = new byte[ciphertext.Length];
 
-            using (AesGcm aesGcm = new AesGcm(key))
+            using (AesGcm aesGcm = new AesGcm(key, TagSize))
             {
                 await Task.Run(() => aesGcm.Decrypt(nonce, ciphertext, tag, plaintext));
             }

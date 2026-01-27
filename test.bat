@@ -49,18 +49,10 @@ echo.
 :: Test connectivity
 echo [2/3] Service Connectivity:
 echo ═══════════════════════════════════════════
-set services=7001:Gateway 5001:Auth 5002:Message 5003:User
-
-for %%s in (%services%) do (
-    for /f "tokens=1,2 delims=:" %%a in ("%%s") do (
-        netstat -an | findstr ":%%a " | findstr "LISTENING" >nul 2>&1
-        if !ERRORLEVEL! EQU 0 (
-            echo   ✅ %%b Service (Port %%a^)
-        ) else (
-            echo   ❌ %%b Service (Port %%a^)
-        )
-    )
-)
+call :check_port 7001 Gateway
+call :check_port 5001 Auth
+call :check_port 5002 Message
+call :check_port 5003 User
 echo.
 
 :unit_tests
@@ -81,6 +73,20 @@ if exist "tests\MessengerTests\MessengerTests.csproj" (
 echo.
 
 echo ═══════════════════════════════════════════
-echo Test run complete!
+echo Test run complete
 echo.
 pause
+exit /b
+
+:check_port
+setlocal
+set port=%1
+set name=%2
+netstat -an | findstr ":%port% " | findstr "LISTENING" >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo   ✅ %name% Service ^(Port %port%^)
+) else (
+    echo   ❌ %name% Service ^(Port %port%^)
+)
+endlocal
+exit /b

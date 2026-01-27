@@ -1,7 +1,7 @@
 // PSEUDO-CODE - Sprint 9: Settings View Code-Behind
 using System.Windows.Controls;
 
-namespace SecureMessenger.Client.Views;
+namespace MessengerClient.Views;
 
 public partial class SettingsView : UserControl
 {

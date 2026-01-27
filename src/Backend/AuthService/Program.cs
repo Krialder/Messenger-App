@@ -1,3 +1,4 @@
+using AuthService;
 using AuthService.Data;
 using AuthService.Services;
 using MessengerContracts.Interfaces;
@@ -81,6 +82,9 @@ builder.Services.AddHealthChecks()
     .AddNpgSql(connectionString);
 
 var app = builder.Build();
+
+// Validate Production Environment
+EnvironmentValidator.ValidateProductionEnvironment(app.Configuration, app.Environment);
 
 // Middleware
 if (app.Environment.IsDevelopment())
